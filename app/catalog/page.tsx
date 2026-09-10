@@ -1,271 +1,406 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase"; 
-import { 
-  Search, 
-  Filter, 
-  MapPin, 
-  Clock, 
-  Package, 
-  HandHeart, 
-  Loader2,
-  Tag,
-  Sparkles
+import * as React from "react";
+import Link from "next/link";
+import toast from "react-hot-toast";
+import {
+  Search,
+  SlidersHorizontal,
+  MapPin,
+  Package,
+  HeartHandshake,
+  ArrowLeft,
+  Boxes,
+  Hash,
 } from "lucide-react";
 
-type ItemType = 'donation' | 'request';
+import { supabase } from "@/lib/supabase";
+import { cn, stripCoordinatesPrefix } from "@/lib/utils";
+import { Container, Section } from "@/components/ui/Section";
+import { Badge, StatusBadge, UrgencyBadge } from "@/components/ui/Badge";
+import { ItemCard } from "@/components/ui/ItemCard";
+import { Card, IconTile } from "@/components/ui/Card";
+import { buttonClass } from "@/components/ui/Button";
+import { LoadingState, EmptyState } from "@/components/ui/Feedback";
+import { Rail } from "@/components/ui/Rail";
+import { Reveal } from "@/components/ui/Reveal";
 
-interface CatalogUIItem {
+type Tab = "donation" | "need";
+
+interface CatalogDonation {
   id: string;
   title: string;
-  type: ItemType;
   category: string;
-  location: string;
-  badgeText: string;
-  imageUrl?: string;
+  subCategory?: string;
+  condition?: string;
   description: string;
+  location: string;
+  imageUrl?: string;
+  status: string;
+}
+
+interface CatalogNeed {
+  id: string;
+  title: string;
+  category: string;
+  subCategory?: string;
+  urgency?: string;
+  quantity: number;
+  description: string;
+  location: string;
+}
+
+const ALL = "الكل";
+
+/** Categories come from free text and the classifier, so match loosely. */
+function matchesCategory(value: string | undefined, filter: string) {
+  if (filter === ALL) return true;
+  if (!value) return false;
+  return value.includes(filter) || filter.includes(value);
 }
 
 export default function CatalogPage() {
-  const [items, setItems] = useState<CatalogUIItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<ItemType>('donation');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('الكل');
+  const [donations, setDonations] = React.useState<CatalogDonation[]>([]);
+  const [needs, setNeeds] = React.useState<CatalogNeed[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [tab, setTab] = React.useState<Tab>("donation");
+  const [query, setQuery] = React.useState("");
+  const [category, setCategory] = React.useState(ALL);
 
-  // جلب البيانات من Supabase
-  useEffect(() => {
-    const fetchCatalog = async () => {
-      setIsLoading(true);
-      try {
-        // 1. جلب التبرعات من جدول donations
-        const { data: donationsData, error: donationsError } = await supabase
-          .from('donations')
-          .select('*');
+  React.useEffect(() => {
+    let active = true;
 
-        if (donationsError) {
-          console.error("Error fetching donations:", donationsError.message || donationsError);
-        }
+    const load = async () => {
+      const [donationsResult, needsResult] = await Promise.all([
+        supabase
+          .from("donations")
+          .select("*")
+          .eq("status", "available")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("needs")
+          .select("*")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false }),
+      ]);
 
-        // 2. جلب الطلبات من جدول needs
-        const { data: requestsData, error: requestsError } = await supabase
-          .from('needs')
-          .select('*');
+      if (!active) return;
 
-        if (requestsError) {
-          console.error("Error fetching requests:", requestsError.message || requestsError);
-        }
+      if (donationsResult.error || needsResult.error) {
+        toast.error("تعذّر جلب البيانات من الخادم. حاول تحديث الصفحة.");
+      }
 
-        // توحيد شكل بيانات التبرعات
-        const normalizedDonations: CatalogUIItem[] = (donationsData || []).map(d => ({
+      setDonations(
+        (donationsResult.data ?? []).map((d) => ({
           id: d.id,
           title: d.title,
-          type: 'donation',
           category: d.category,
-          location: d.location || 'غير محدد',
-          badgeText: d.condition || 'متاح',
-          imageUrl: d.image_url || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&q=80&w=800',
-          description: d.description || 'لا يوجد وصف متاح لهذا التبرع.',
-        }));
+          subCategory: d.sub_category ?? undefined,
+          condition: d.condition ?? undefined,
+          description: d.description || "لا يوجد وصف إضافي لهذه القطعة.",
+          location: stripCoordinatesPrefix(d.location) || "الموقع غير محدد",
+          imageUrl: d.image_url ?? undefined,
+          status: d.status,
+        }))
+      );
 
-        // توحيد شكل بيانات الطلبات (بدون صورة)
-        const normalizedRequests: CatalogUIItem[] = (requestsData || []).map(r => ({
-          id: r.id,
-          title: r.title,
-          type: 'request',
-          category: r.category,
-          location: r.delivery_location || 'غير محدد',
-          badgeText: r.urgency === 'high' ? 'عاجل جداً' : 'طلب احتياج',
-          description: r.description || 'لا يوجد وصف متاح لهذا الطلب.',
-        }));
+      setNeeds(
+        (needsResult.data ?? []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          category: n.category,
+          subCategory: n.sub_category ?? undefined,
+          urgency: n.urgency ?? undefined,
+          quantity: n.quantity ?? 1,
+          description: n.description || "لا توجد تفاصيل إضافية لهذا الطلب.",
+          location:
+            stripCoordinatesPrefix(n.delivery_location) || "الموقع غير محدد",
+        }))
+      );
 
-        setItems([...normalizedDonations, ...normalizedRequests]);
-      } catch (error) {
-        console.error("حدث خطأ غير متوقع أثناء جلب البيانات:", error);
-      } finally {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     };
 
-    fetchCatalog();
+    load();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  const filteredItems = items.filter(item => {
-    const matchesTab = item.type === activeTab;
-    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          item.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'الكل' || item.category === selectedCategory;
-    
-    return matchesTab && matchesSearch && matchesCategory;
-  });
+  // The classifier invents categories, so the chips are built from whatever
+  // is actually in the data. A hardcoded list would hide any item whose
+  // category the model worded differently.
+  const categoryOptions = React.useMemo(() => {
+    const present = new Set<string>();
+    for (const row of [...donations, ...needs]) {
+      const value = row.category?.trim();
+      if (value) present.add(value);
+    }
+    return [ALL, ...[...present].sort((a, b) => a.localeCompare(b, "ar"))];
+  }, [donations, needs]);
+
+  const term = query.trim().toLowerCase();
+
+  const visibleDonations = donations.filter(
+    (d) =>
+      matchesCategory(d.category, category) &&
+      (!term ||
+        d.title.toLowerCase().includes(term) ||
+        d.description.toLowerCase().includes(term))
+  );
+
+  const visibleNeeds = needs.filter(
+    (n) =>
+      matchesCategory(n.category, category) &&
+      (!term ||
+        n.title.toLowerCase().includes(term) ||
+        n.description.toLowerCase().includes(term))
+  );
+
+  const count =
+    tab === "donation" ? visibleDonations.length : visibleNeeds.length;
 
   return (
-    <div className="bg-slate-50 min-h-screen font-sans selection:bg-emerald-200" dir="rtl">
-      
-      {/* 1. Page Header */}
-      <section className="pt-32 pb-12 bg-slate-900 text-white relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?q=80&w=2000&auto=format&fit=crop')] bg-cover bg-center opacity-10"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent"></div>
-        
-        <div className="container mx-auto px-4 relative z-10 text-center">
-          <div data-aos="fade-down" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-sm font-bold mb-4 backdrop-blur-md">
-            <Sparkles size={16} />
-            <span>مجتمع أثر للتكافل</span>
+    <>
+      {/* ==================== HERO + SEARCH ==================== */}
+      <Container width="wide" className="pt-4">
+        <div className="relative isolate overflow-hidden rounded-2xl bg-ink-900 px-6 py-14 md:rounded-3xl md:px-14 md:py-16">
+          <span
+            aria-hidden
+            className="grain-layer pointer-events-none absolute inset-0 -z-10"
+          />
+          <span
+            aria-hidden
+            className="glow-brand animate-sheen pointer-events-none absolute -top-56 start-1/3 -z-10 h-[42rem] w-[42rem] -translate-x-1/2"
+          />
+
+          <div className="max-w-2xl animate-rise">
+            <h1 className="font-display text-display font-extrabold text-balance text-sand-50">
+              معروضات جاهزة، واحتياجات تنتظر
+            </h1>
+            <p className="mt-5 text-lead text-pretty text-sand-200/80">
+              تصفّح ما تبرّع به الناس فعلاً، أو انظر في الطلبات المفتوحة واختر
+              واحداً تغطّيه اليوم. القائمة تُحدَّث لحظياً.
+            </p>
           </div>
-          <h1 data-aos="fade-up" className="text-4xl md:text-5xl font-extrabold mb-4">
-            معرض التبرعات والاحتياجات
-          </h1>
-          <p data-aos="fade-up" data-aos-delay="100" className="text-slate-300 text-lg max-w-2xl mx-auto">
-            تصفح أحدث المواد المعروضة للتبرع، أو ابحث في الطلبات لتقديم المساعدة المباشرة للمحتاجين.
-          </p>
-        </div>
-      </section>
 
-      {/* 2. Controls Section (Tabs & Filters) */}
-      <section className="py-8 sticky top-0 z-40 bg-slate-50/90 backdrop-blur-xl border-b border-slate-200">
-        <div className="container mx-auto px-4 max-w-6xl">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            
-            {/* Tabs */}
-            <div data-aos="fade-left" className="bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm flex items-center w-full md:w-auto">
-              <button 
-                onClick={() => setActiveTab('donation')}
-                className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 rounded-xl font-bold transition-all ${
-                  activeTab === 'donation' 
-                    ? 'bg-emerald-100 text-emerald-700 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <Package size={18} />
-                المعروضات
-              </button>
-              <button 
-                onClick={() => setActiveTab('request')}
-                className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-8 py-3 rounded-xl font-bold transition-all ${
-                  activeTab === 'request' 
-                    ? 'bg-teal-100 text-teal-700 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <HandHeart size={18} />
-                الطلبات
-              </button>
+          {/* Search sits on the panel, half-overlapping the content below. */}
+          <div className="glass mt-10 flex flex-col gap-3 rounded-2xl p-3 shadow-xl sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search
+                size={18}
+                className="pointer-events-none absolute inset-y-0 start-4 my-auto text-sand-500"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="ابحث عن معطف، طاولة، كتب مدرسية…"
+                className="h-12 w-full rounded-xl bg-white/70 ps-12 pe-4 text-sm text-ink-900 outline-none ring-1 ring-inset ring-white/60 transition-all placeholder:text-sand-500 focus:bg-white focus:ring-2 focus:ring-brand-500"
+                aria-label="ابحث في المعروضات والطلبات"
+              />
             </div>
 
-            {/* Search & Filter */}
-            <div data-aos="fade-right" className="flex items-center gap-3 w-full md:w-auto">
-              <div className="relative w-full md:w-64">
-                <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="ابحث عن شيء محدد..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-4 pr-12 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all font-medium"
-                />
-              </div>
-              <div className="relative">
-                <Filter size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <select 
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full md:w-48 pl-4 pr-12 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all font-medium appearance-none cursor-pointer"
-                >
-                  <option value="الكل">جميع التصنيفات</option>
-                  <option value="أثاث">أثاث منزلي</option>
-                  <option value="ملابس">ملابس</option>
-                  <option value="أجهزة كهربائية">أجهزة كهربائية</option>
-                  <option value="أجهزة طبية">أجهزة طبية</option>
-                  <option value="كتب">كتب ومناهج</option>
-                  <option value="متنوعة">متنوعة</option>
-                </select>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Catalog Grid */}
-      <section className="py-12 min-h-[50vh]">
-        <div className="container mx-auto px-4 max-w-6xl">
-          
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center h-64 text-emerald-600">
-              <Loader2 size={48} className="animate-spin mb-4" />
-              <p className="text-lg font-bold">جاري جلب البيانات من الخوادم...</p>
-            </div>
-          ) : filteredItems.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {filteredItems.map((item, index) => (
-                <div 
-                  key={item.id}
-                  data-aos="fade-up"
-                  data-aos-delay={(index % 3) * 100}
-                  className="bg-white rounded-[2rem] border border-slate-100 shadow-lg shadow-slate-200/40 hover:shadow-2xl hover:shadow-emerald-100/60 transition-all duration-300 overflow-hidden group flex flex-col"
-                >
-                  {/* عرض الصورة فقط إذا كان العنصر "تبرع" */}
-                  {item.type === 'donation' && item.imageUrl && (
-                    <div className="relative h-56 overflow-hidden bg-slate-100 shrink-0">
-                      <img 
-                        src={item.imageUrl} 
-                        alt={item.title} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      />
-                      <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm text-sm font-bold text-slate-700">
-                        <Tag size={14} className="text-emerald-500" />
-                        {item.category}
-                      </div>
-                    </div>
+            <div className="flex rounded-xl bg-white/60 p-1 ring-1 ring-inset ring-white/60">
+              {(
+                [
+                  { id: "donation", label: "المعروضات", n: donations.length },
+                  { id: "need", label: "الطلبات", n: needs.length },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setTab(option.id)}
+                  className={cn(
+                    "flex-1 rounded-lg px-5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all",
+                    tab === option.id
+                      ? "bg-ink-900 text-sand-50 shadow-sm"
+                      : "text-ink-700 hover:text-ink-900",
                   )}
-
-                  {/* Content */}
-                  <div className="p-6 flex-1 flex flex-col">
-                    {/* عرض شارة التصنيف داخل المحتوى للطلبات (لعدم وجود صورة) */}
-                    {item.type === 'request' && (
-                      <div className="mb-4 inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 px-3 py-1.5 rounded-xl text-sm font-bold w-fit border border-teal-100">
-                        <Tag size={14} />
-                        {item.category}
-                      </div>
-                    )}
-
-                    <h3 className="text-xl font-extrabold text-slate-900 mb-3">
-                      {item.title}
-                    </h3>
-                    <p className="text-slate-500 text-sm font-medium mb-6 leading-relaxed flex-1">
-                      {item.description}
-                    </p>
-
-                    <div className="space-y-3 pt-4 border-t border-slate-100 mt-auto">
-                      <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
-                        <MapPin size={16} className="text-slate-400 shrink-0" />
-                        <span className="truncate">{item.location}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-600 text-sm font-medium">
-                        <Clock size={16} className={item.badgeText === 'عاجل جداً' ? 'text-red-400 shrink-0' : 'text-slate-400 shrink-0'} />
-                        <span className={item.badgeText === 'عاجل جداً' ? 'text-red-500 font-bold' : ''}>{item.badgeText}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                >
+                  {option.label}
+                  <span className="ms-1.5 tabular-nums opacity-60">
+                    {option.n}
+                  </span>
+                </button>
               ))}
             </div>
-          ) : (
-            <div className="text-center py-24 bg-white rounded-[3rem] border border-slate-100 shadow-sm" data-aos="zoom-in">
-              <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Search size={40} className="text-slate-300" />
-              </div>
-              <h3 className="text-2xl font-bold text-slate-900 mb-2">لا توجد نتائج مطابقة</h3>
-              <p className="text-slate-500 font-medium">
-                لم نتمكن من العثور على ما تبحث عنه. جرب تصنيفاً آخر أو قم بإضافة أول {activeTab === 'donation' ? 'تبرع' : 'طلب'}!
-              </p>
-            </div>
-          )}
-
+          </div>
         </div>
-      </section>
+      </Container>
 
-    </div>
+      {/* ==================== FILTER CHIPS ==================== */}
+      {/* Only ALL is present until data loads, and a lone chip is just noise. */}
+      {categoryOptions.length > 1 && (
+        <Section space="sm" pad="top">
+          <Container width="wide">
+            <div className="flex items-center gap-3">
+              <span className="hidden items-center gap-2 text-small font-semibold text-ink-700 sm:flex">
+                <SlidersHorizontal size={15} />
+                الفئات
+              </span>
+              <Rail bleed={false} className="snap-none pb-0">
+                {categoryOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setCategory(item)}
+                    className={cn(
+                      "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-all",
+                      category === item
+                        ? "bg-brand-600 text-white shadow-sm"
+                        : "bg-sand-100 text-ink-700 ring-1 ring-sand-200 hover:bg-white hover:ring-sand-300",
+                    )}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </Rail>
+            </div>
+          </Container>
+        </Section>
+      )}
+
+      {/* ==================== RESULTS ==================== */}
+      <Section pad="bottom" className="pt-8">
+        <Container width="wide">
+          {isLoading ? (
+            <LoadingState label="جاري جلب المعروضات والطلبات…" />
+          ) : (
+            <>
+              <p className="mb-7 text-small text-ink-700/75">
+                <span className="font-bold text-ink-900 tabular-nums">
+                  {count}
+                </span>{" "}
+                {tab === "donation" ? "قطعة متاحة" : "طلب مفتوح"}
+                {category !== ALL && ` في فئة «${category}»`}
+                {term && ` تطابق «${query.trim()}»`}
+              </p>
+
+              {tab === "donation" ? (
+                visibleDonations.length > 0 ? (
+                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                    {visibleDonations.map((item, i) => (
+                      <Reveal key={item.id} delay={Math.min(i, 8) * 60}>
+                        <ItemCard
+                          title={item.title}
+                          description={item.description}
+                          category={item.category}
+                          subCategory={item.subCategory}
+                          condition={item.condition}
+                          location={item.location}
+                          imageUrl={item.imageUrl}
+                          status={<StatusBadge status={item.status} />}
+                          footer={
+                            <Link
+                              href="/dashboard"
+                              className={buttonClass({
+                                variant: "primary",
+                                full: true,
+                              })}
+                            >
+                              اطلب هذه القطعة
+                              <ArrowLeft
+                                size={16}
+                                className="transition-transform duration-300 group-hover/btn:-translate-x-1"
+                              />
+                            </Link>
+                          }
+                        />
+                      </Reveal>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState
+                    icon={Package}
+                    title="لا توجد قطع مطابقة"
+                    body="جرّب فئة أخرى أو أزل كلمة البحث. المعروضات تتغيّر يومياً، فعد لاحقاً."
+                    action={
+                      <Link
+                        href="/donate"
+                        className={buttonClass({ variant: "primary" })}
+                      >
+                        كن أول من يتبرّع
+                      </Link>
+                    }
+                  />
+                )
+              ) : visibleNeeds.length > 0 ? (
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleNeeds.map((need, i) => (
+                    <Reveal key={need.id} delay={Math.min(i, 8) * 60}>
+                      <Card padding="lg" className="flex h-full flex-col">
+                        <div className="flex items-start justify-between gap-3">
+                          <IconTile tone="gold">
+                            <HeartHandshake size={19} strokeWidth={1.75} />
+                          </IconTile>
+                          <UrgencyBadge urgency={need.urgency} />
+                        </div>
+
+                        <h3 className="mt-5 font-display text-h3 font-bold text-ink-900">
+                          {need.title}
+                        </h3>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <Badge variant="neutral">{need.category}</Badge>
+                          {need.subCategory && (
+                            <Badge variant="neutral">{need.subCategory}</Badge>
+                          )}
+                          <Badge variant="brand">
+                            <Hash size={11} />
+                            الكمية {need.quantity}
+                          </Badge>
+                        </div>
+
+                        <p className="mt-4 line-clamp-3 grow text-small leading-relaxed text-ink-700/80">
+                          {need.description}
+                        </p>
+
+                        <p className="mt-5 flex items-center gap-2 text-small text-ink-700/75">
+                          <MapPin
+                            size={14}
+                            className="shrink-0 text-sand-500"
+                          />
+                          <span className="truncate">{need.location}</span>
+                        </p>
+
+                        <Link
+                          href="/dashboard"
+                          className={cn(
+                            buttonClass({ variant: "dark", full: true }),
+                            "mt-5",
+                          )}
+                        >
+                          غطِّ هذا الطلب
+                          <ArrowLeft
+                            size={16}
+                            className="transition-transform duration-300 group-hover/btn:-translate-x-1"
+                          />
+                        </Link>
+                      </Card>
+                    </Reveal>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={Boxes}
+                  title="لا طلبات مفتوحة الآن"
+                  body="كل الطلبات المسجّلة تمّت تغطيتها. يمكنك التبرع للكاتالوج ليجدها المستفيدون جاهزة."
+                  action={
+                    <Link
+                      href="/donate"
+                      className={buttonClass({ variant: "primary" })}
+                    >
+                      تبرّع للكاتالوج
+                    </Link>
+                  }
+                />
+              )}
+            </>
+          )}
+        </Container>
+      </Section>
+    </>
   );
 }

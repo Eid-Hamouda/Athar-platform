@@ -1,138 +1,298 @@
-import { Truck, MapPin, Map as MapIcon, CheckCircle2, PhoneCall, MessageCircle } from "lucide-react";
-import { DonationItem } from "@/types";
+"use client";
+
+import Image from "next/image";
+import {
+  Truck,
+  MapPin,
+  Map as MapIcon,
+  CheckCircle2,
+  PhoneCall,
+  MessageCircle,
+  PackageCheck,
+  ArrowDownToLine,
+  History,
+} from "lucide-react";
+
+import { formatWhatsAppNumber, stripCoordinatesPrefix } from "@/lib/utils";
+import { Badge, StatusBadge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/Feedback";
+import {
+  PageHeader,
+  Surface,
+  Toolbar,
+  ActionChip,
+} from "@/components/dashboard/ui/Layout";
+import {
+  DataTable,
+  THead,
+  TBody,
+  TR,
+  TH,
+  TD,
+  TableEmpty,
+  CellStack,
+} from "@/components/dashboard/ui/Table";
+import { StatCard } from "@/components/dashboard/ui/Stat";
 
 interface VolunteerViewProps {
   activeTab: string;
-  donations: any[]; // Using any to safely access new dynamic fields like contact_phone
+  /** Rows carry delivery fields that aren't on the base DonationItem type. */
+  donations: any[];
   handleCompleteDelivery: (donationId: string) => void;
+}
+
+function mapsHref(query: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 export default function VolunteerView({
   activeTab,
   donations,
-  handleCompleteDelivery
+  handleCompleteDelivery,
 }: VolunteerViewProps) {
-  // Helper function to format Syrian numbers for WhatsApp API
-  const formatWhatsAppNumber = (phone: string) => {
-    if (!phone) return "";
-    let cleaned = phone.replace(/\D/g, "");
-    if (cleaned.startsWith("0")) cleaned = cleaned.substring(1);
-    if (!cleaned.startsWith("963")) cleaned = "963" + cleaned;
-    return `https://wa.me/${cleaned}`;
-  };
+  const active = donations.filter((d) => d.status === "reserved");
+  const completed = donations.filter((d) => d.status === "completed");
 
+  /* ======================================================================== */
+  /* Active tasks                                                             */
+  /* ======================================================================== */
   if (activeTab === "volunteer-tasks") {
-    // Only show tasks that are actively reserved and assigned for delivery
-    const activeTasks = donations.filter(
-      (d) => d.status === "reserved"
-    );
-
     return (
-      <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm animate-in fade-in">
-        <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-          <Truck className="text-emerald-600" /> المهام الميدانية للتوصيل
-        </h2>
+      <>
+        <PageHeader
+          title="المهام النشطة"
+          description="كل مهمة تحتوي نقطة الاستلام وعنوان التسليم ورقم تواصل واحد — تُخفى بعد تأكيد التسليم."
+        />
 
-        {activeTasks.length === 0 ? (
-          <div className="text-center py-16 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-            <CheckCircle2 size={48} className="mx-auto text-emerald-200 mb-4" />
-            <p className="text-slate-500 font-medium">
-              أنجزت عملاً رائعاً! لا توجد مهام توصيل مسندة إليك حالياً.
-            </p>
-          </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard
+            label="مهام نشطة"
+            value={active.length}
+            hint={active.length > 0 ? "تنتظر التنفيذ" : "لا شيء الآن"}
+            icon={Truck}
+            attention={active.length > 0}
+          />
+          <StatCard
+            label="تسليم مكتمل"
+            value={completed.length}
+            hint="إجمالي سجلّك"
+            icon={PackageCheck}
+          />
+          <StatCard
+            label="إجمالي المهام"
+            value={donations.length}
+            hint="المسندة إليك"
+            icon={CheckCircle2}
+          />
+        </div>
+
+        {active.length === 0 ? (
+          <EmptyState
+            className="mt-6"
+            icon={CheckCircle2}
+            title="لا مهام مسندة إليك حالياً"
+            body="ستظهر المهام القريبة منك هنا بمجرد أن يعيّنها فريق الإدارة."
+          />
         ) : (
-          <div className="space-y-4">
-            {activeTasks.map((d) => {
-              const cleanSourceLocation = d.location ? d.location.replace("إحداثيات الخريطة:", "").replace("إحداثيات:", "").trim() : "";
-              const cleanDeliveryLocation = d.delivery_location ? d.delivery_location.replace("إحداثيات الخريطة:", "").replace("إحداثيات:", "").trim() : "";
+          <div className="mt-6 flex flex-col gap-4">
+            {active.map((task) => {
+              const pickup = stripCoordinatesPrefix(task.location);
+              const dropoff = stripCoordinatesPrefix(task.delivery_location);
 
               return (
-                <div
-                  key={d.id}
-                  className="flex flex-col p-5 bg-slate-50 rounded-2xl border border-slate-200/80 gap-5 hover:bg-white transition-all shadow-sm"
+                <Surface
+                  key={task.id}
+                  flush
+                  footer={
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs text-ink-700/65">
+                        أكّد التسليم بعد تسليم القطعة للمستفيد فعلياً.
+                      </p>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleCompleteDelivery(task.id)}
+                      >
+                        <CheckCircle2 size={15} />
+                        أكّد إتمام التسليم
+                      </Button>
+                    </div>
+                  }
                 >
-                  <div className="flex items-start gap-4 w-full border-b border-slate-200 pb-4">
-                    <img
-                      src={d.image_url || "/hero.png"}
-                      alt=""
-                      className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
-                    />
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-900 text-lg">{d.title}</p>
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                          {d.category} - {d.sub_category}
-                        </span>
-                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
-                          حالة العنصر: {d.condition}
-                        </span>
+                  {/* Work-order header */}
+                  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-sand-200 px-5 py-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <Image
+                        src={task.image_url || "/placeholder-item.svg"}
+                        alt=""
+                        width={44}
+                        height={44}
+                        className="h-11 w-11 shrink-0 rounded-md object-cover ring-1 ring-sand-200"
+                      />
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-bold text-ink-900">
+                          {task.title}
+                        </h3>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Badge variant="neutral">
+                            {task.category}
+                            {task.sub_category ? ` — ${task.sub_category}` : ""}
+                          </Badge>
+                          {task.condition && (
+                            <Badge variant="gold">{task.condition}</Badge>
+                          )}
+                        </div>
                       </div>
-                      {d.description && (
-                        <p className="text-sm text-slate-600 mt-2 line-clamp-1">
-                          {d.description}
-                        </p>
+                    </div>
+                    <StatusBadge status={task.status} />
+                  </div>
+
+                  {/* Route */}
+                  <div className="grid sm:grid-cols-2">
+                    <div className="border-b border-sand-200 px-5 py-4 sm:border-b-0">
+                      <p className="flex items-center gap-2 text-xs font-bold text-ink-700/70">
+                        <ArrowDownToLine size={14} className="text-brand-600" />
+                        ١ · الاستلام من المتبرّع
+                      </p>
+                      <p className="mt-2 text-sm text-ink-800">
+                        {task.location || "غير محدد"}
+                      </p>
+                      {pickup && (
+                        <ActionChip
+                          href={mapsHref(pickup)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-3 flex w-fit"
+                        >
+                          <MapIcon size={12} className="text-brand-600" />
+                          افتح في الخرائط
+                        </ActionChip>
                       )}
                     </div>
-                  </div>
 
-                  {/* Logistics and Delivery Details Section */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-                    <div className="flex-1 space-y-4 w-full">
-                      
-                      {/* Source Location (Donor) */}
-                      <div>
-                        <p className="text-xs font-bold text-slate-500 mb-1">استلام من المصدر:</p>
-                        <div className="flex items-center flex-wrap gap-2">
-                          <p className="text-xs text-slate-700 flex items-center gap-1 bg-slate-200/50 px-2.5 py-1 rounded-lg">
-                            <MapPin size={14} className="text-emerald-600" />
-                            <span className="font-medium">{d.location}</span>
-                          </p>
-                          {cleanSourceLocation && (
-                            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanSourceLocation)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-slate-200 text-slate-700 px-2.5 py-1 rounded-lg hover:bg-slate-300 transition-colors">
-                              <MapIcon size={12} /> خرائط جوجل
-                            </a>
-                          )}
-                        </div>
-                      </div>
+                    {/* border-s faces the previous column under dir="rtl" */}
+                    <div className="px-5 py-4 sm:border-s sm:border-sand-200">
+                      <p className="flex items-center gap-2 text-xs font-bold text-ink-700/70">
+                        <MapPin size={14} className="text-brand-600" />
+                        ٢ · التسليم للمستفيد
+                      </p>
+                      <p className="mt-2 text-sm text-ink-800">
+                        {task.delivery_address || "لم يُحدَّد عنوان التوصيل"}
+                      </p>
 
-                      {/* Delivery Location (Beneficiary) */}
-                      <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                        <p className="text-xs font-bold text-emerald-800 mb-1">تسليم للمستفيد:</p>
-                        <p className="text-sm text-slate-700 font-medium line-clamp-2 mb-2">{d.delivery_address}</p>
-                        <div className="flex items-center flex-wrap gap-2">
-                          {cleanDeliveryLocation && (
-                            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanDeliveryLocation)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-emerald-200 text-emerald-900 px-2.5 py-1 rounded-lg hover:bg-emerald-600 hover:text-white transition-colors">
-                              <MapIcon size={12} /> خرائط جوجل للموقع
-                            </a>
-                          )}
-                          {d.contact_phone && (
-                            <>
-                              <a href={`tel:${d.contact_phone}`} className="flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white text-[11px] font-bold rounded-lg hover:bg-slate-800 transition-colors">
-                                <PhoneCall size={12} /> اتصال
-                              </a>
-                              <a href={formatWhatsAppNumber(d.contact_phone)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-2.5 py-1 bg-[#25D366] text-white text-[11px] font-bold rounded-lg hover:bg-[#128C7E] transition-colors">
-                                <MessageCircle size={12} /> واتساب
-                              </a>
-                            </>
-                          )}
-                        </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {dropoff && (
+                          <ActionChip
+                            href={mapsHref(dropoff)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <MapIcon size={12} className="text-brand-600" />
+                            الخرائط
+                          </ActionChip>
+                        )}
+                        {task.contact_phone && (
+                          <>
+                            <ActionChip
+                              tone="dark"
+                              href={`tel:${task.contact_phone}`}
+                            >
+                              <PhoneCall size={12} />
+                              اتصال
+                            </ActionChip>
+                            <ActionChip
+                              tone="whatsapp"
+                              href={formatWhatsAppNumber(task.contact_phone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <MessageCircle size={12} />
+                              واتساب
+                            </ActionChip>
+                          </>
+                        )}
                       </div>
                     </div>
-
-                    <button
-                      onClick={() => handleCompleteDelivery(d.id)}
-                      className="w-full sm:w-auto px-8 py-4 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 shrink-0 transition-all"
-                    >
-                      إتمام التسليم
-                    </button>
                   </div>
-                </div>
+                </Surface>
               );
             })}
           </div>
         )}
-      </div>
+      </>
     );
   }
+
+  /* ======================================================================== */
+  /* Delivery history                                                         */
+  /* ======================================================================== */
+  if (activeTab === "volunteer-history") {
+    return (
+      <>
+        <PageHeader
+          title="سجل التسليمات"
+          description="المهام التي أتممتها. يبقى السجل متاحاً لتوثيق ساعاتك التطوعية."
+        />
+
+        <Surface flush>
+          <Toolbar>
+            <span className="text-xs text-ink-700/60">
+              {completed.length} تسليم مكتمل
+            </span>
+          </Toolbar>
+
+          <DataTable minWidth="46rem">
+            <THead>
+              <TR>
+                <TH>القطعة</TH>
+                <TH>الفئة</TH>
+                <TH>عنوان التسليم</TH>
+                <TH justify="end">الحالة</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {completed.length === 0 ? (
+                <TableEmpty
+                  colSpan={4}
+                  icon={History}
+                  title="لا تسليمات بعد"
+                  body="ستُسجَّل كل مهمة تؤكّد تسليمها هنا تلقائياً."
+                />
+              ) : (
+                completed.map((task) => (
+                  <TR key={task.id}>
+                    <TD>
+                      <CellStack
+                        media={
+                          <Image
+                            src={task.image_url || "/placeholder-item.svg"}
+                            alt=""
+                            width={36}
+                            height={36}
+                            className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-sand-200"
+                          />
+                        }
+                        primary={task.title}
+                        secondary={task.sub_category}
+                      />
+                    </TD>
+                    <TD className="text-ink-700/80">{task.category}</TD>
+                    <TD className="max-w-64 truncate text-ink-700/80">
+                      {task.delivery_address || "—"}
+                    </TD>
+                    <TD justify="end">
+                      <StatusBadge status={task.status} />
+                    </TD>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </DataTable>
+        </Surface>
+      </>
+    );
+  }
+
   return null;
 }

@@ -1,250 +1,370 @@
-"use client";
-
-import Link from "next/link";
-import { 
-  UploadCloud, 
-  Search, 
-  Truck, 
-  CheckCircle2, 
+import type { Metadata } from "next";
+import {
   ArrowLeft,
-  Sparkles,
-  User,
-  HeartHandshake,
-  Building2,
+  Camera,
   ShieldCheck,
-  Cpu,
-  Smartphone
+  Lock,
+  UserCheck,
+  PackageOpen,
+  HeartHandshake,
+  Truck,
+  BadgeCheck,
+  Building2,
+  Users,
+  Check,
 } from "lucide-react";
+
+import { Container, Section } from "@/components/ui/Section";
+import { PageHero } from "@/components/ui/PageHero";
+import { SectionHeading } from "@/components/ui/SectionHeading";
+import { ButtonLink } from "@/components/ui/Button";
+import { Photo } from "@/components/ui/Photo";
+import { Reveal } from "@/components/ui/Reveal";
+import { Card, IconTile } from "@/components/ui/Card";
+import { Accordion } from "@/components/ui/Accordion";
+import { CtaPanel } from "@/components/ui/CtaPanel";
+import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = {
+  title: "كيف تعمل المنصة",
+  description:
+    "الدورة الكاملة في أثر: التسجيل والاعتماد، رفع القطعة بصورة واحدة، المطابقة الذكية، التوصيل عبر المتطوعين، ثم التوثيق وإغلاق الدورة.",
+};
+
+const stages = [
+  {
+    icon: UserCheck,
+    title: "التسجيل واعتماد الحساب",
+    body: "تختار دورك عند التسجيل: متبرّع، مستفيد، متطوّع، أو جمعية. حسابات المتبرعين والمتطوعين تُفعّل فوراً، أما المستفيدون والجمعيات فيمرّون بتدقيق يدوي من فريق الإدارة قبل السماح لهم بتقديم الطلبات.",
+    note: "التدقيق يستغرق عادةً أقل من 48 ساعة عمل.",
+    image: "/images/community-hands.jpg",
+    imageAlt: "أيادٍ متشابكة تعبّر عن العمل المجتمعي",
+  },
+  {
+    icon: Camera,
+    title: "رفع القطعة بصورة واحدة",
+    body: "تفتح صفحة التبرع وترفع صورة القطعة. تتولّى خدمة الرؤية الحاسوبية تحليل الصورة: نوع القطعة، لونها، حالتها التقديرية، ثم تكتب وصفاً عربياً وتختار التصنيف والتصنيف الفرعي. يبقى لك تعديل أي حقل قبل النشر.",
+    note: "تحدّد موقع الاستلام على الخريطة أو تكتبه نصياً.",
+    image: "/images/boxes.jpg",
+    imageAlt: "صناديق كرتونية معدّة للتبرع",
+  },
+  {
+    icon: HeartHandshake,
+    title: "المطابقة مع احتياج موثّق",
+    body: "إن كان هناك طلب احتياج مفتوح يطابق فئة قطعتك، يرشّحه النظام لك مباشرة مرتّباً بالأولوية والقرب الجغرافي. وإن لم يوجد، تُنشر القطعة في الكاتالوج ليحجزها مستفيد معتمد بنفسه.",
+    note: "الأولوية دائماً للطلبات المصنّفة «حرج طارئ».",
+    image: "/images/children-classroom.jpg",
+    imageAlt: "أطفال في صف دراسي",
+  },
+  {
+    icon: Truck,
+    title: "الاستلام والتوصيل الميداني",
+    body: "بمجرد الحجز، تظهر المهمة لشبكة المتطوعين القريبين. يستلم المتطوّع القطعة من عندك بموعد يناسبك، وتصل إليه نقطة التسليم على الخريطة مع رقم تواصل المستفيد — ولا يرى أي بيانات أخرى.",
+    note: "أزرار الاتصال والواتساب مدمجة في لوحة المتطوّع.",
+    image: "/images/logistics-truck.jpg",
+    imageAlt: "متطوعون ينزّلون صناديق من شاحنة",
+  },
+  {
+    icon: BadgeCheck,
+    title: "التوثيق وإغلاق الدورة",
+    body: "يؤكّد المتطوّع التسليم من لوحته، فتتحوّل حالة القطعة إلى «تم التسليم» ويُغلق طلب الاحتياج المرتبط بها. يصلك إشعار بوقت التسليم والجهة المستلمة، ويظهر السجل كاملاً في لوحتك.",
+    note: "السجل يبقى متاحاً لك دائماً للمراجعة.",
+    image: "/images/children-smiling.jpg",
+    imageAlt: "أطفال مبتسمون",
+  },
+];
+
+const behindTheScenes = [
+  {
+    icon: Camera,
+    title: "رؤية حاسوبية",
+    body: "نموذج تحليل صور يستخرج النوع والحالة والتصنيف من الصورة، فيختصر دقائق من التعبئة اليدوية إلى ثوانٍ.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "تدقيق بشري",
+    body: "لا خوارزمية تعتمد مستفيداً. كل حساب مستفيد أو جمعية يراجعه فريق الإدارة يدوياً قبل تفعيل الطلبات.",
+  },
+  {
+    icon: Lock,
+    title: "أقل قدر من البيانات",
+    body: "المتطوّع يرى العنوان ورقم التواصل فقط ولحظة المهمة فقط. لا اسم كامل، ولا تفاصيل حالة، ولا تاريخ سابق.",
+  },
+];
+
+const roles = [
+  {
+    icon: PackageOpen,
+    title: "المتبرّع",
+    points: [
+      "ارفع بصورة، دون تعبئة وصف",
+      "تابع القطعة في ثلاث مراحل واضحة",
+      "تبرّع باسمك أو مجهولاً",
+      "لا رسوم ولا عمولة",
+    ],
+  },
+  {
+    icon: HeartHandshake,
+    title: "المستفيد",
+    points: [
+      "قدّم طلب احتياج بالكمية والأولوية",
+      "احجز من الكاتالوج مباشرة",
+      "استلم حتى باب المنزل",
+      "بياناتك لا تُنشر أبداً",
+    ],
+  },
+  {
+    icon: Truck,
+    title: "المتطوّع",
+    points: [
+      "اختر المهام القريبة منك",
+      "نقطتا الاستلام والتسليم على الخريطة",
+      "اتصال وواتساب بضغطة",
+      "أكّد التسليم من هاتفك",
+    ],
+  },
+  {
+    icon: Building2,
+    title: "الجمعية الشريكة",
+    points: [
+      "أضف حالات مستفيديك",
+      "استلم التبرعات الموجّهة لك",
+      "لوحة إحصاءات وتوزيع",
+      "تقارير جاهزة للمراجعة",
+    ],
+  },
+];
+
+const quality = [
+  {
+    question: "ما القطع التي تُرفض؟",
+    answer:
+      "كل ما لا يمكن استخدامه بأمان: الملابس الممزّقة أو غير النظيفة، الأجهزة المعطّلة، الأثاث المكسور، الأدوية، الأغذية سريعة التلف، وأي قطعة قد تسبّب ضرراً. يحق لفريق الإدارة حجب أي عنصر لا يستوفي هذه المعايير.",
+  },
+  {
+    question: "من يتحمّل تكلفة النقل؟",
+    answer:
+      "لا أحد يدفع للمنصة. التوصيل يعتمد على شبكة متطوعين يختارون المهام القريبة من مساراتهم اليومية، ولهذا نحرص على المطابقة الجغرافية أولاً — فهي ما يجعل النموذج مستداماً بلا تكاليف.",
+  },
+  {
+    question: "كم تستغرق الدورة كاملة؟",
+    answer:
+      "متوسط الزمن من رفع القطعة إلى تسليمها 36 ساعة. الطلبات المصنّفة «حرج طارئ» تُرشّح للمتطوعين بأولوية أعلى وتُنجز عادةً في اليوم نفسه إن توفّر متطوّع قريب.",
+  },
+  {
+    question: "هل يمكن للجمعيات رفع تبرعات بالجملة؟",
+    answer:
+      "نعم. الحسابات المعتمدة كجمعية أو منظمة تستطيع إضافة عناصر متعدّدة وإدارة توزيعها من لوحة التحكم، مع إمكانية توجيه دفعة كاملة إلى مجموعة حالات موثّقة.",
+  },
+];
 
 export default function HowItWorksPage() {
   return (
-    <div className="bg-slate-50 min-h-screen font-sans selection:bg-emerald-200" dir="rtl">
-      
-      {/* 1. Hero Section */}
-      <section className="relative pt-24 pb-20 overflow-hidden">
-        {/* Decorative Backgrounds */}
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-emerald-100/50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 -z-10"></div>
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-teal-50/60 rounded-full blur-3xl translate-y-1/3 -translate-x-1/4 -z-10"></div>
+    <>
+      <PageHero
+        width="wide"
+        title="من صورة على هاتفك، إلى قطعة في بيت يحتاجها"
+        lead="خمس مراحل، كل واحدة منها موثّقة وقابلة للتتبّع. هذه الصفحة تشرح ما يحدث في كل مرحلة، ومن يرى ماذا، ومتى."
+        actions={
+          <>
+            <ButtonLink href="/auth/register" variant="gold" size="lg">
+              ابدأ الآن
+              <ArrowLeft
+                size={19}
+                className="transition-transform duration-300 group-hover/btn:-translate-x-1"
+              />
+            </ButtonLink>
+            <ButtonLink href="/catalog" variant="on-ink" size="lg">
+              شاهد المعروضات
+            </ButtonLink>
+          </>
+        }
+        image={{
+          src: "/images/logistics-truck.jpg",
+          alt: "متطوعون ينزّلون صناديق تبرعات من شاحنة",
+        }}
+      />
 
-        <div className="container mx-auto px-4 max-w-4xl text-center relative z-10">
-          <div data-aos="fade-down" className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-emerald-100 text-emerald-700 text-sm font-bold mb-6 shadow-sm">
-            <Sparkles size={16} className="text-emerald-500" />
-            <span>رحلة العطاء خطوة بخطوة</span>
-          </div>
-          
-          <h1 data-aos="fade-up" data-aos-delay="100" className="text-4xl md:text-6xl font-extrabold text-slate-900 mb-6 leading-[1.2]">
-            كيف تحول منصة أثر تبرعاتك <br />
-            <span className="bg-clip-text text-transparent bg-gradient-to-l from-emerald-600 to-teal-500">
-              إلى أثر حقيقي؟
-            </span>
-          </h1>
-          
-          <p data-aos="fade-up" data-aos-delay="200" className="text-slate-600 text-lg md:text-xl leading-relaxed font-medium max-w-3xl mx-auto">
-            دورة عمل ذكية، مدروسة ومبسطة تضمن سهولة الإجراءات وسرعة الاستجابة لجميع أطراف المنظومة، من لحظة التقاط الصورة وحتى وصول التبرع لمستحقيه.
-          </p>
-        </div>
-      </section>
+      {/* ==================== STAGES TIMELINE ==================== */}
+      <Section>
+        <Container width="wide">
+          <SectionHeading
+            title="ما يحدث فعلاً بين نقطتين"
+            lead="لا نختصر الشرح في أيقونات. هذه هي التفاصيل التشغيلية التي تحكم كل تبرّع على المنصة."
+            className="mb-16"
+          />
 
-      {/* 2. Timeline Process Section */}
-      <section className="py-16 overflow-hidden">
-        <div className="container mx-auto px-4 max-w-4xl">
-          <div className="relative border-r-4 border-emerald-100 pr-8 md:pr-12 space-y-16">
-            
-            {/* Step 1 */}
-            <div data-aos="fade-right" className="relative group">
-              <div className="absolute -right-[50px] md:-right-[66px] w-12 h-12 md:w-16 md:h-16 bg-white border-4 border-emerald-100 rounded-full flex items-center justify-center text-xl md:text-2xl font-extrabold text-emerald-600 shadow-lg group-hover:scale-110 group-hover:border-emerald-300 transition-all">
-                1
-              </div>
-              <div className="bg-white p-8 md:p-10 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/40 group-hover:shadow-2xl group-hover:shadow-emerald-100/50 transition-all">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
-                    <UploadCloud size={28} />
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-slate-900">التصنيف الذكي ورفع التبرع</h3>
-                </div>
-                <p className="text-slate-600 text-lg leading-relaxed font-medium">
-                  يقوم المتبرع أو المنظمة برفع صورة العنصر الفائض (ملابس، أثاث، أدوات، كتب). تتولى خوارزميات الذكاء الاصطناعي تحليل الصورة، تصنيفها، وكتابة وصف دقيق لها تلقائياً لتوفير الوقت وتسهيل عملية البحث.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 2 */}
-            <div data-aos="fade-left" className="relative group">
-              <div className="absolute -right-[50px] md:-right-[66px] w-12 h-12 md:w-16 md:h-16 bg-white border-4 border-emerald-100 rounded-full flex items-center justify-center text-xl md:text-2xl font-extrabold text-emerald-600 shadow-lg group-hover:scale-110 group-hover:border-emerald-300 transition-all">
-                2
-              </div>
-              <div className="bg-white p-8 md:p-10 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/40 group-hover:shadow-2xl group-hover:shadow-emerald-100/50 transition-all">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center">
-                    <Search size={28} />
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-slate-900">طلبات الاحتياج والمطابقة</h3>
-                </div>
-                <p className="text-slate-600 text-lg leading-relaxed font-medium">
-                  يستعرض المستفيدون المعتمدون (بعد مراجعة الإدارة) والجهات الخيرية المعروضات المتاحة، أو يقدمون طلبات احتياج محددة. يقوم النظام بعمل مطابقة فورية لربط التبرع بالشخص أو الجهة الأشد احتياجاً.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 3 */}
-            <div data-aos="fade-right" className="relative group">
-              <div className="absolute -right-[50px] md:-right-[66px] w-12 h-12 md:w-16 md:h-16 bg-white border-4 border-emerald-100 rounded-full flex items-center justify-center text-xl md:text-2xl font-extrabold text-emerald-600 shadow-lg group-hover:scale-110 group-hover:border-emerald-300 transition-all">
-                3
-              </div>
-              <div className="bg-white p-8 md:p-10 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/40 group-hover:shadow-2xl group-hover:shadow-emerald-100/50 transition-all">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-                    <Truck size={28} />
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-slate-900">النقل والتوصيل الميداني</h3>
-                </div>
-                <p className="text-slate-600 text-lg leading-relaxed font-medium">
-                  بمجرد تأكيد المطابقة، يتم إرسال إشعار لشبكة المتطوعين أو المنظمات الشريكة لاستلام مهام نقل التبرعات من مواقع المتبرعين وإيصالها إلى عناوين المستفيدين بكل احترافية وسرية.
-                </p>
-              </div>
-            </div>
-
-            {/* Step 4 */}
-            <div data-aos="fade-left" className="relative group">
-              <div className="absolute -right-[50px] md:-right-[66px] w-12 h-12 md:w-16 md:h-16 bg-white border-4 border-emerald-100 rounded-full flex items-center justify-center text-xl md:text-2xl font-extrabold text-emerald-600 shadow-lg group-hover:scale-110 group-hover:border-emerald-300 transition-all">
-                4
-              </div>
-              <div className="bg-white p-8 md:p-10 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/40 group-hover:shadow-2xl group-hover:shadow-emerald-100/50 transition-all">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
-                    <CheckCircle2 size={28} />
-                  </div>
-                  <h3 className="text-2xl font-extrabold text-slate-900">التأكيد والشفافية</h3>
-                </div>
-                <p className="text-slate-600 text-lg leading-relaxed font-medium">
-                  عند إتمام عملية التسليم، يُرسل النظام إشعاراً فورياً للمتبرع يشكره على إسهامه، ويوثق اكتمال دورة التبرع بنجاح، لضمان أعلى مستويات الشفافية والموثوقية في العمل الخيري.
-                </p>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Roles Section (New) */}
-      <section className="py-24 bg-slate-900 text-white overflow-hidden">
-        <div className="container mx-auto px-4 max-w-6xl">
-          <div data-aos="fade-up" className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-emerald-400 font-bold tracking-wide mb-3 uppercase text-sm">منظومة متكاملة</h2>
-            <h3 className="text-3xl md:text-4xl font-extrabold text-white mb-6">كيف تستفيد من المنصة حسب دورك؟</h3>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div data-aos="fade-up" data-aos-delay="0" className="bg-slate-800 p-8 rounded-3xl border border-slate-700 hover:border-emerald-500/50 transition-colors group">
-              <div className="w-14 h-14 bg-slate-700 text-emerald-400 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                <User size={28} />
-              </div>
-              <h4 className="text-xl font-bold mb-3">المتبرع</h4>
-              <ul className="space-y-2 text-slate-400 text-sm font-medium">
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> تبرع بضغطة زر واحدة.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> تتبع حالة تبرعاتك لحظة بلحظة.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" /> حافظ على سرية هويتك إن أردت.</li>
-              </ul>
-            </div>
-
-            <div data-aos="fade-up" data-aos-delay="100" className="bg-slate-800 p-8 rounded-3xl border border-slate-700 hover:border-emerald-500/50 transition-colors group">
-              <div className="w-14 h-14 bg-slate-700 text-teal-400 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                <HeartHandshake size={28} />
-              </div>
-              <h4 className="text-xl font-bold mb-3">المستفيد</h4>
-              <ul className="space-y-2 text-slate-400 text-sm font-medium">
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-teal-500 shrink-0 mt-0.5" /> اطلب ما تحتاجه بكرامة وخصوصية.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-teal-500 shrink-0 mt-0.5" /> تصفح المعروضات المناسبة لك.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-teal-500 shrink-0 mt-0.5" /> استلم التبرعات حتى باب منزلك.</li>
-              </ul>
-            </div>
-
-            <div data-aos="fade-up" data-aos-delay="200" className="bg-slate-800 p-8 rounded-3xl border border-slate-700 hover:border-emerald-500/50 transition-colors group">
-              <div className="w-14 h-14 bg-slate-700 text-blue-400 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                <Truck size={28} />
-              </div>
-              <h4 className="text-xl font-bold mb-3">المتطوع</h4>
-              <ul className="space-y-2 text-slate-400 text-sm font-medium">
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> اختر مهام التوصيل القريبة منك.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> مسارات منظمة عبر الخرائط.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" /> وثق ساعاتك التطوعية بسهولة.</li>
-              </ul>
-            </div>
-
-            <div data-aos="fade-up" data-aos-delay="300" className="bg-slate-800 p-8 rounded-3xl border border-slate-700 hover:border-emerald-500/50 transition-colors group">
-              <div className="w-14 h-14 bg-slate-700 text-indigo-400 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                <Building2 size={28} />
-              </div>
-              <h4 className="text-xl font-bold mb-3">الجمعية الخيرية</h4>
-              <ul className="space-y-2 text-slate-400 text-sm font-medium">
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-indigo-500 shrink-0 mt-0.5" /> إدارة التبرعات الواردة بكفاءة.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-indigo-500 shrink-0 mt-0.5" /> لوحة تحكم شاملة للإحصائيات.</li>
-                <li className="flex items-start gap-2"><CheckCircle2 size={16} className="text-indigo-500 shrink-0 mt-0.5" /> توثيق الحالات واعتماد المستفيدين.</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Tech Highlights (New) */}
-      <section className="py-24 bg-white border-b border-slate-100 overflow-hidden">
-        <div className="container mx-auto px-4 max-w-5xl text-center">
-          <Cpu data-aos="zoom-in" size={48} className="mx-auto mb-6 text-emerald-600" />
-          <h2 data-aos="fade-up" className="text-3xl font-extrabold text-slate-900 mb-6">مدعومون بالذكاء الاصطناعي والأمان</h2>
-          <p data-aos="fade-up" data-aos-delay="100" className="text-slate-600 text-lg leading-relaxed font-medium max-w-2xl mx-auto mb-12">
-            لا تقتصر المنصة على ربط الأشخاص ببعضهم، بل نستخدم أحدث التقنيات لضمان تجربة سلسة وآمنة تماماً.
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-right">
-            <div data-aos="fade-left" data-aos-delay="200" className="bg-emerald-50/50 p-8 rounded-3xl border border-emerald-100 flex items-start gap-4">
-              <Smartphone size={32} className="text-emerald-600 shrink-0" />
-              <div>
-                <h4 className="font-bold text-slate-900 text-lg mb-2">تطبيق وسائط ذكي</h4>
-                <p className="text-slate-600 font-medium text-sm leading-relaxed">
-                  التعرف التلقائي على محتوى الصور (Image Recognition) لتقليل الجهد البشري في كتابة وتصنيف التبرعات.
-                </p>
-              </div>
-            </div>
-            
-            <div data-aos="fade-right" data-aos-delay="300" className="bg-blue-50/50 p-8 rounded-3xl border border-blue-100 flex items-start gap-4">
-              <ShieldCheck size={32} className="text-blue-600 shrink-0" />
-              <div>
-                <h4 className="font-bold text-slate-900 text-lg mb-2">أمان وموثوقية البيانات</h4>
-                <p className="text-slate-600 font-medium text-sm leading-relaxed">
-                  تشفير كامل لبيانات المستخدمين، والتحقق بخطوتين، لضمان عدم مشاركة معلومات المستفيدين إلا مع الجهات المصرح لها.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Call to Action Banner */}
-      <section className="py-24 overflow-hidden">
-        <div className="container mx-auto px-4 max-w-5xl">
-          <div data-aos="zoom-in" className="relative bg-gradient-to-br from-emerald-600 to-teal-800 rounded-[3rem] p-12 md:p-16 text-center text-white shadow-2xl overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
-            
-            <div className="relative z-10">
-              <h2 className="text-3xl md:text-4xl font-extrabold mb-4">هل أنت مستعد لبدء إحداث الفارق؟</h2>
-              <p className="text-emerald-50 text-lg mb-10 max-w-2xl mx-auto font-medium">
-                العملية أسهل مما تتخيل. انضم الآن إلى شبكتنا وكن السبب في رسم البسمة على وجه محتاج.
-              </p>
-              
-              <div className="flex justify-center">
-                <Link 
-                  href="/auth/register"
-                  className="group bg-white text-emerald-800 px-8 py-4 rounded-2xl font-extrabold text-lg hover:bg-slate-50 hover:shadow-xl transition-all flex items-center gap-3"
+          <ol className="flex flex-col gap-16 md:gap-24">
+            {stages.map((stage, i) => (
+              <li key={stage.title} className="list-none">
+                <Reveal
+                  className={cn(
+                    "grid items-center gap-8 md:gap-14 lg:grid-cols-2",
+                    i % 2 === 1 && "lg:[&>*:first-child]:order-2"
+                  )}
                 >
-                  ابدأ التبرع الآن
-                  <ArrowLeft size={20} className="group-hover:-translate-x-1.5 transition-transform" />
-                </Link>
-              </div>
+                  {/* Copy */}
+                  <div>
+                    <div className="flex items-center gap-4">
+                      <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-ink-900 font-display text-xl font-extrabold tabular-nums text-gold-300 shadow-md">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <IconTile tone="brand" size="lg">
+                        <stage.icon size={24} strokeWidth={1.75} />
+                      </IconTile>
+                    </div>
+
+                    <h3 className="mt-7 font-display text-h1 font-extrabold text-balance text-ink-900">
+                      {stage.title}
+                    </h3>
+                    <p className="mt-5 text-lead text-pretty text-ink-700/85">
+                      {stage.body}
+                    </p>
+                    <p className="mt-6 flex items-start gap-2.5 rounded-2xl bg-brand-50 p-4 text-small font-semibold text-brand-800 ring-1 ring-brand-100">
+                      <Check size={15} strokeWidth={3} className="mt-0.5 shrink-0" />
+                      {stage.note}
+                    </p>
+                  </div>
+
+                  {/* Photo */}
+                  <Photo
+                    src={stage.image}
+                    alt={stage.imageAlt}
+                    ratio="4/3"
+                    shape="rounded"
+                    sizes="(max-width: 1024px) 100vw, 46vw"
+                    className="shadow-lg ring-1 ring-sand-200"
+                  />
+                </Reveal>
+              </li>
+            ))}
+          </ol>
+        </Container>
+      </Section>
+
+      {/* ==================== BEHIND THE SCENES ==================== */}
+      <Section pad="bottom">
+        <Container width="wide">
+          <div className="relative isolate overflow-hidden rounded-2xl bg-ink-900 px-6 py-14 md:rounded-3xl md:px-12 md:py-20">
+            <span
+              aria-hidden
+              className="grain-layer pointer-events-none absolute inset-0 -z-10"
+            />
+            <span
+              aria-hidden
+              className="glow-brand pointer-events-none absolute -top-52 start-1/4 -z-10 h-[40rem] w-[40rem]"
+            />
+
+            <SectionHeading
+              tone="light"
+              title="ثلاث طبقات تحمي الدورة من الخلل"
+              className="mb-12"
+            />
+
+            <div className="grid gap-5 md:grid-cols-3">
+              {behindTheScenes.map((item, i) => (
+                <Reveal key={item.title} delay={i * 100}>
+                  <Card tone="ink" padding="lg" className="h-full">
+                    <IconTile tone="ink" size="lg" className="bg-white/10">
+                      <item.icon size={24} strokeWidth={1.75} />
+                    </IconTile>
+                    <h3 className="mt-6 font-display text-h3 font-bold text-sand-50">
+                      {item.title}
+                    </h3>
+                    <p className="mt-3 text-pretty text-sand-200/75">
+                      {item.body}
+                    </p>
+                  </Card>
+                </Reveal>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
+        </Container>
+      </Section>
 
-    </div>
+      {/* ==================== ROLES ==================== */}
+      <Section pad="bottom">
+        <Container width="wide">
+          <SectionHeading
+            title="ماذا يمكنك فعله بحسب دورك"
+            lead="الصلاحيات مفصولة بدقة، فلا يرى أحد أكثر مما يحتاجه لإتمام مهمته."
+            action={
+              <ButtonLink href="/auth/register" variant="outline" size="lg">
+                <Users size={17} />
+                اختر دورك
+              </ButtonLink>
+            }
+            className="mb-12"
+          />
+
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {roles.map((role, i) => (
+              <Reveal key={role.title} delay={i * 90}>
+                <Card padding="lg" className="h-full">
+                  <IconTile tone="gold" size="lg">
+                    <role.icon size={23} strokeWidth={1.75} />
+                  </IconTile>
+                  <h3 className="mt-6 font-display text-h3 font-bold text-ink-900">
+                    {role.title}
+                  </h3>
+                  <ul className="mt-5 flex flex-col gap-3">
+                    {role.points.map((point) => (
+                      <li
+                        key={point}
+                        className="flex items-start gap-2.5 text-small text-ink-700/85"
+                      >
+                        <Check
+                          size={14}
+                          strokeWidth={3}
+                          className="mt-1 shrink-0 text-brand-500"
+                        />
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </Reveal>
+            ))}
+          </div>
+        </Container>
+      </Section>
+
+      {/* ==================== QUALITY RULES ==================== */}
+      <Section pad="bottom">
+        <Container width="wide">
+          <div className="grid gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
+            <div className="lg:sticky lg:top-28 lg:self-start">
+              <h2 className="font-display text-h1 font-extrabold text-balance text-ink-900">
+                القاعدة الأولى: لا نُهدي ما لا نقبله لأنفسنا
+              </h2>
+              <p className="mt-5 text-pretty text-ink-700/85">
+                كرامة المستفيد ليست تفصيلاً ثانوياً، بل هي المعيار الذي نرفض أو
+                نقبل على أساسه كل قطعة.
+              </p>
+            </div>
+
+            <Reveal>
+              <Accordion items={quality} defaultOpenIndex={0} />
+            </Reveal>
+          </div>
+        </Container>
+      </Section>
+
+      {/* ==================== CTA ==================== */}
+      <Section pad="bottom">
+        <Container width="wide">
+          <CtaPanel
+            title="ابدأ بقطعة واحدة، اليوم"
+            body="التسجيل يستغرق دقيقتين، والتبرع الأول قد يستغرق أقل من ذلك: صورة واحدة، وتحديد موقع الاستلام."
+            primary={{ label: "أنشئ حسابك", href: "/auth/register" }}
+            secondary={{ label: "لدي سؤال أولاً", href: "/contact" }}
+            image={{
+              src: "/images/clothing-rack.jpg",
+              alt: "رفّ ملابس مرتّبة",
+            }}
+          />
+        </Container>
+      </Section>
+    </>
   );
 }

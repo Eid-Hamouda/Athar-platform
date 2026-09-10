@@ -1,63 +1,104 @@
-import { MapPin, Tag } from "lucide-react";
-import { Button } from "./Button";
+import * as React from "react";
+import { MapPin, Tag, Sparkle } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Photo } from "./Photo";
+import { Badge } from "./Badge";
 
 export interface ItemCardProps {
   title: string;
-  category: string;
-  condition: string;
-  location: string;
-  imageUrl?: string;
-  type: "donation" | "need";
+  description?: string;
+  category?: string;
+  subCategory?: string;
+  condition?: string;
+  location?: string;
+  imageUrl?: string | null;
+  /** Ribbon shown over the photo — availability, urgency, etc. */
+  status?: React.ReactNode;
+  /** Extra chips rendered under the title. */
+  meta?: React.ReactNode;
+  footer?: React.ReactNode;
+  className?: string;
 }
 
-export function ItemCard({ title, category, condition, location, imageUrl, type }: ItemCardProps) {
+/**
+ * The catalogue unit. Photography leads; the chips carry the structured data
+ * the AI classifier produces.
+ */
+export function ItemCard({
+  title,
+  description,
+  category,
+  subCategory,
+  condition,
+  location,
+  imageUrl,
+  status,
+  meta,
+  footer,
+  className,
+}: ItemCardProps) {
   return (
-    <div className="group bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 flex flex-col h-full">
-      
-      {/* Image Container */}
-      <div className="relative h-48 w-full bg-slate-100 overflow-hidden">
-        {imageUrl ? (
-          <img 
-            src={imageUrl} 
-            alt={title} 
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-            <span className="text-sm">لا توجد صورة</span>
+    <article
+      className={cn(
+        "group flex h-full flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-sand-200/80 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:ring-sand-300",
+        className
+      )}
+    >
+      <div className="relative">
+        <Photo
+          src={imageUrl || "/placeholder-item.svg"}
+          alt={title}
+          ratio="4/3"
+          shape="soft"
+          zoom
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          className="rounded-none"
+        />
+
+        {status && <div className="absolute top-3 end-3 z-10">{status}</div>}
+
+        {category && (
+          <div className="absolute bottom-3 start-3 z-10">
+            <span className="glass inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-micro font-bold text-ink-900 shadow-sm">
+              <Tag size={12} className="text-brand-600" />
+              {category}
+            </span>
           </div>
         )}
-        
-        {/* Status Badge */}
-        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-semibold shadow-sm">
-          {type === "donation" ? (
-            <span className="text-emerald-600">متاح للتبرع</span>
-          ) : (
-            <span className="text-amber-600">مطلوب عاجلاً</span>
+      </div>
+
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="font-display text-h4 font-bold text-ink-900">{title}</h3>
+
+        {(subCategory || condition || meta) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {subCategory && <Badge variant="neutral">{subCategory}</Badge>}
+            {condition && (
+              <Badge variant="gold">
+                <Sparkle size={11} />
+                {condition}
+              </Badge>
+            )}
+            {meta}
+          </div>
+        )}
+
+        {description && (
+          <p className="mt-4 line-clamp-2 text-small leading-relaxed text-ink-700/80">
+            {description}
+          </p>
+        )}
+
+        <div className="mt-auto pt-5">
+          {location && (
+            <p className="mb-4 flex items-center gap-2 text-small text-ink-700/75">
+              <MapPin size={14} className="shrink-0 text-sand-500" />
+              <span className="truncate">{location}</span>
+            </p>
           )}
+          {footer}
         </div>
       </div>
-
-      {/* Content Section */}
-      <div className="p-5 flex flex-col flex-grow">
-        <h3 className="text-lg font-bold text-slate-900 mb-3">{title}</h3>
-        
-        <div className="space-y-2 mb-6 flex-grow">
-          <div className="flex items-center text-sm text-slate-600">
-            <Tag size={16} className="ml-2 text-slate-400 shrink-0" />
-            <span>{category} &bull; {condition}</span>
-          </div>
-          <div className="flex items-center text-sm text-slate-600">
-            <MapPin size={16} className="ml-2 text-slate-400 shrink-0" />
-            <span className="truncate">{location}</span>
-          </div>
-        </div>
-
-        {/* Action Button */}
-        <Button variant={type === "donation" ? "primary" : "outline"} className="w-full mt-auto">
-          {type === "donation" ? "طلب العنصر" : "تلبية الاحتياج"}
-        </Button>
-      </div>
-    </div>
+    </article>
   );
 }

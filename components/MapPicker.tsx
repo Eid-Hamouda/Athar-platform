@@ -107,7 +107,7 @@ function LeafletMapInner({
   const { MapContainer, TileLayer } = require("react-leaflet");
 
   return (
-    <div className="w-full h-72 rounded-2xl overflow-hidden border border-slate-200 relative z-0">
+    <div className="w-full h-72 rounded-lg overflow-hidden border border-neutral-200 relative z-0">
       <MapContainer
         center={[24.7136, 46.6753]}
         zoom={11}
@@ -132,7 +132,7 @@ function LeafletMapInner({
 const ClientMap = dynamic(() => Promise.resolve(LeafletMapInner), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-72 bg-slate-100 flex items-center justify-center text-slate-400">
+    <div className="w-full h-72 bg-neutral-100 flex items-center justify-center text-neutral-400">
       جاري تحميل الخريطة...
     </div>
   )

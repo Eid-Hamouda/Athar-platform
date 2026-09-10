@@ -1,272 +1,469 @@
 "use client";
 
-import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+import * as React from "react";
 import { useRouter } from "next/navigation";
-import toast, { Toaster } from "react-hot-toast";
-import { Heart, Upload, MapPin, ArrowRight } from "lucide-react";
-import MapPicker from "@/components/MapPicker";
+import toast from "react-hot-toast";
+import {
+  Sparkles,
+  MapPin,
+  ShieldCheck,
+  Check,
+  ArrowLeft,
+  LayoutDashboard,
+  Truck,
+  HeartHandshake,
+  BadgeCheck,
+} from "lucide-react";
 
-const subCategoriesMap: Record<string, string[]> = {
-  ملابس: ["ملابس شتوية", "ملابس صيفية", "أحذية", "ملابس أطفال"],
-  كتب: ["كتب مدرسية", "كتب روايات ومعرفة", "أدوات مكتبية وقرطاسية"],
-  أثاث: ["أثاث غرف نوم", "مجالس وأريكة", "طاولات ومكاتب"],
-  أجهزة: ["أجهزة منزلية كبرى", "أجهزة إلكترونية صغيرة", "هواتف وحواسيب"],
-  أخرى: ["متنوعة عامة", "مستلزمات طوارئ"]
-};
+import { supabase } from "@/lib/supabase";
+import { analyzeItemAction } from "@/app/actions/aiActions";
+import MapPicker from "@/components/MapPicker";
+import { Container, Section } from "@/components/ui/Section";
+import { Input, Select, Textarea, Field } from "@/components/ui/Input";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Card, IconTile } from "@/components/ui/Card";
+import { Photo } from "@/components/ui/Photo";
+import { FileDrop } from "@/components/ui/FileDrop";
+import { Reveal } from "@/components/ui/Reveal";
+
+const CATEGORY_SUGGESTIONS = [
+  "ملابس",
+  "أحذية",
+  "أثاث",
+  "أجهزة",
+  "إلكترونيات",
+  "كتب",
+  "مستلزمات أطفال",
+  "أدوات منزلية",
+  "أخرى",
+];
+
+const timeline = [
+  {
+    icon: Sparkles,
+    title: "تصنيف تلقائي",
+    body: "يقرأ النظام الصورة ويقترح العنوان والفئة والحالة، وتبقى لك الكلمة الأخيرة.",
+  },
+  {
+    icon: HeartHandshake,
+    title: "مطابقة مع احتياج",
+    body: "إن وُجد طلب مفتوح مطابق تُوجَّه القطعة إليه، وإلّا تُنشر في الكاتالوج.",
+  },
+  {
+    icon: Truck,
+    title: "متطوّع يستلمها",
+    body: "يتواصل معك متطوّع قريب لتحديد موعد مناسب للاستلام من موقعك.",
+  },
+  {
+    icon: BadgeCheck,
+    title: "إشعار بالتسليم",
+    body: "عند وصولها يصلك إشعار بالوقت والجهة المستلمة، ويظهر السجل في لوحتك.",
+  },
+];
+
+const acceptRules = [
+  "نظيفة ومغسولة",
+  "سليمة وغير مكسورة",
+  "الأجهزة تعمل فعلاً",
+  "لا أدوية ولا أغذية",
+];
 
 export default function DonatePage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [formData, setFormData] = useState({
+  const [file, setFile] = React.useState<File | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [form, setForm] = React.useState({
     title: "",
-    category: "ملابس",
-    sub_category: "ملابس شتوية",
+    category: "",
+    sub_category: "",
     condition: "ممتازة",
     description: "",
-    location: "الرياض"
+    location: "",
   });
 
-  const handleCategoryChange = (newCategory: string) => {
-    setFormData({
-      ...formData,
-      category: newCategory,
-      sub_category: subCategoriesMap[newCategory]?.[0] || "عام"
-    });
+  const set = <K extends keyof typeof form>(key: K, value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  /* ---------------- AI classification on upload ---------------- */
+  const handleFile = async (next: File | null) => {
+    setFile(next);
+    if (!next) return;
+
+    setIsAnalyzing(true);
+    const toastId = toast.loading("الذكاء الاصطناعي يقرأ الصورة…");
+
+    try {
+      const payload = new FormData();
+      payload.append("image", next);
+      const analysis = await analyzeItemAction(payload);
+
+      if (!analysis) throw new Error("no-analysis");
+
+      setForm((prev) => ({
+        ...prev,
+        title: prev.title || analysis.suggested_title,
+        category: analysis.category || prev.category,
+        sub_category: analysis.sub_category || prev.sub_category,
+        condition: analysis.condition || prev.condition,
+      }));
+
+      toast.success(`تم التصنيف: ${analysis.category} — ${analysis.sub_category}`, {
+        id: toastId,
+      });
+    } catch {
+      toast.error("تعذّر التصنيف التلقائي. يمكنك تعبئة الحقول يدوياً.", {
+        id: toastId,
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
+  /* ---------------- Submit ---------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return toast.error("الرجاء إرفاق صورة للعنصر المتبرع به");
+    if (!file) return toast.error("أضف صورة للقطعة أولاً.");
+    if (!form.location.trim())
+      return toast.error("حدّد موقع الاستلام على الخريطة أو اكتبه نصياً.");
 
-    const toastId = toast.loading("جاري رفع التبرع ومعالجة البيانات...");
-    setLoading(true);
+    setIsSubmitting(true);
+    const toastId = toast.loading("جاري نشر التبرع…");
 
     try {
       const {
-        data: { session }
+        data: { session },
       } = await supabase.auth.getSession();
+
       if (!session) {
-        toast.error("الرجاء تسجيل الدخول أولاً لتسجيل التبرع", {
-          id: toastId
-        });
-        return router.push("/auth");
+        toast.error("سجّل الدخول أولاً لتسجيل التبرع.", { id: toastId });
+        router.push("/auth/login");
+        return;
       }
 
-      const fileExt = file.name.split(".").pop();
+      const extension = file.name.split(".").pop() ?? "jpg";
       const fileName = `donation_${Date.now()}_${Math.random()
         .toString(36)
-        .substring(2)}.${fileExt}`;
+        .slice(2)}.${extension}`;
+
       const { error: uploadError } = await supabase.storage
         .from("donations-images")
         .upload(fileName, file);
-
       if (uploadError) throw uploadError;
 
-      const { data: publicURLData } = supabase.storage
+      const { data: publicUrl } = supabase.storage
         .from("donations-images")
         .getPublicUrl(fileName);
 
       const { error: insertError } = await supabase.from("donations").insert({
-        ...formData,
-        image_url: publicURLData.publicUrl,
+        ...form,
+        image_url: publicUrl.publicUrl,
         donor_id: session.user.id,
-        status: "available"
+        status: "available",
       });
-
       if (insertError) throw insertError;
 
-      toast.success("تم نشر تبرعك بنجاح في المنصة! شكراً لعطائك.", {
-        id: toastId
-      });
+      toast.success("نُشر تبرّعك. شكراً لعطائك.", { id: toastId });
       router.push("/dashboard");
-    } catch (err: any) {
-      toast.error("حدث خطأ أثناء رفع التبرع: " + err.message, { id: toastId });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "خطأ غير متوقع";
+      toast.error(`تعذّر نشر التبرع: ${message}`, { id: toastId });
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 py-12 px-4" dir="rtl">
-      <Toaster position="bottom-right" />
-      <div className="max-w-2xl mx-auto bg-white rounded-3xl border border-slate-200/80 p-8 shadow-sm">
-        <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Heart size={24} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900">
-                تبرع بعنصر عيني الآن
+    <>
+      {/* ==================== HERO ==================== */}
+      <Container width="wide" className="pt-4">
+        <div className="relative isolate overflow-hidden rounded-2xl bg-ink-900 px-6 py-12 md:rounded-3xl md:px-14 md:py-14">
+          <span
+            aria-hidden
+            className="grain-layer pointer-events-none absolute inset-0 -z-10"
+          />
+          <span
+            aria-hidden
+            className="glow-brand animate-sheen pointer-events-none absolute -top-56 start-1/3 -z-10 h-[40rem] w-[40rem] -translate-x-1/2"
+          />
+
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div className="max-w-2xl animate-rise">
+              <h1 className="font-display text-display font-extrabold text-balance text-sand-50">
+                تبرّع بقطعة
               </h1>
-              <p className="text-sm text-slate-500 mt-0.5">
-                أضف تفاصيل العنصر وموقعه ليتم عرضه للمستفيدين والمحتاجين
+              <p className="mt-5 text-lead text-pretty text-sand-200/80">
+                ارفع صورة القطعة وحدّد موقع الاستلام — لا يستغرق الأمر أكثر من
+                دقيقة. سيتولّى النظام التصنيف، وسيتولّى متطوّع قريب الباقي.
               </p>
             </div>
+
+            <ButtonLink href="/dashboard" variant="on-ink">
+              <LayoutDashboard size={16} />
+              لوحة التحكم
+            </ButtonLink>
           </div>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center gap-1 text-sm font-bold text-slate-600 hover:text-emerald-600 transition-colors"
-          >
-            لوحة التحكم <ArrowRight size={16} />
-          </button>
         </div>
+      </Container>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">
-              عنوان العنصر المتبرع به
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="مثال: معطف شتوي بحالة ممتازة / طاولات دراسية"
-              value={formData.title}
-              onChange={(e) =>
-                setFormData({ ...formData, title: e.target.value })
-              }
-              className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-            />
-          </div>
+      {/* ==================== FORM ==================== */}
+      <Section>
+        <Container width="wide">
+          <div className="grid gap-8 lg:grid-cols-[1.35fr_0.65fr] lg:gap-10">
+            {/* ---------- Main form ---------- */}
+            <Card padding="lg" className="order-2 lg:order-1">
+              <form onSubmit={handleSubmit} className="flex flex-col gap-7">
+                {/* Step 1 — photo */}
+                <div>
+                  <StepLabel index="01" title="صورة القطعة" />
+                  <FileDrop
+                    file={file}
+                    onFile={handleFile}
+                    busy={isAnalyzing}
+                    required
+                    label="ارفع صورة واضحة بإضاءة جيدة"
+                    hint="سيقرأ النظام النوع والحالة تلقائياً — PNG أو JPG"
+                    className="mt-4"
+                  />
+                </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
-                الفئة الرئيسية
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-white outline-none"
-              >
-                <option value="ملابس">ملابس</option>
-                <option value="كتب">كتب</option>
-                <option value="أثاث">أثاث</option>
-                <option value="أجهزة">أجهزة</option>
-                <option value="أخرى">أخرى</option>
-              </select>
+                {/* Step 2 — details */}
+                <div className="border-t border-sand-200 pt-7">
+                  <StepLabel
+                    index="02"
+                    title="التفاصيل"
+                    note="مُعبّأة تلقائياً بعد رفع الصورة. لا فئات ثابتة — اكتب ما يصف القطعة فعلاً، والاقتراحات أمثلة فقط."
+                  />
+
+                  <div className="mt-5 flex flex-col gap-5">
+                    <Input
+                      id="donate-title"
+                      label="عنوان القطعة"
+                      required
+                      value={form.title}
+                      onChange={(e) => set("title", e.target.value)}
+                      placeholder="مثال: معطف شتوي بحالة ممتازة"
+                    />
+
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      <Input
+                        id="donate-category"
+                        label="الفئة"
+                        required
+                        list="category-suggestions"
+                        value={form.category}
+                        onChange={(e) => set("category", e.target.value)}
+                        placeholder="ملابس، أثاث، كتب…"
+                      />
+                      <datalist id="category-suggestions">
+                        {CATEGORY_SUGGESTIONS.map((option) => (
+                          <option key={option} value={option} />
+                        ))}
+                      </datalist>
+
+                      <Input
+                        id="donate-subcategory"
+                        label="التصنيف الفرعي"
+                        required
+                        value={form.sub_category}
+                        onChange={(e) => set("sub_category", e.target.value)}
+                        placeholder="معاطف شتوية، طاولات دراسة…"
+                      />
+                    </div>
+
+                    <Select
+                      id="donate-condition"
+                      label="حالة القطعة"
+                      value={form.condition}
+                      onChange={(e) => set("condition", e.target.value)}
+                    >
+                      <option value="ممتازة">ممتازة — شبه جديدة</option>
+                      <option value="جيدة جداً">
+                        جيدة جداً — نظيفة وجاهزة للاستخدام
+                      </option>
+                      <option value="مقبولة">
+                        مقبولة — تحتاج صيانة بسيطة
+                      </option>
+                    </Select>
+
+                    <Textarea
+                      id="donate-description"
+                      label="تفاصيل إضافية"
+                      rows={3}
+                      value={form.description}
+                      onChange={(e) => set("description", e.target.value)}
+                      placeholder="المقاس، اللون، أي ملاحظة تساعد المستفيد أو المتطوّع…"
+                    />
+                  </div>
+                </div>
+
+                {/* Step 3 — location */}
+                <div className="border-t border-sand-200 pt-7">
+                  <StepLabel
+                    index="03"
+                    title="موقع الاستلام"
+                    note="لن يظهر عنوانك إلا للمتطوّع المكلّف بالمهمة"
+                  />
+
+                  <Field
+                    label="حدّد الموقع على الخريطة"
+                    hint="ابحث عن مدينتك أو انقر على الخريطة لتثبيت النقطة"
+                    className="mt-5"
+                  >
+                    <div className="overflow-hidden rounded-xl ring-1 ring-sand-200">
+                      <MapPicker
+                        onLocationSelect={(lat, lng) =>
+                          set(
+                            "location",
+                            `إحداثيات الخريطة: ${lat.toFixed(4)}, ${lng.toFixed(4)}`
+                          )
+                        }
+                      />
+                    </div>
+                  </Field>
+
+                  <Input
+                    id="donate-location"
+                    icon={<MapPin size={16} />}
+                    required
+                    value={form.location}
+                    onChange={(e) => set("location", e.target.value)}
+                    placeholder="أو اكتب الموقع نصياً: دمشق، حي المزة…"
+                    wrapperClassName="mt-4"
+                    label="الموقع نصياً"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="lg"
+                  full
+                  disabled={isSubmitting || isAnalyzing}
+                >
+                  {isSubmitting ? "جاري النشر…" : "انشر التبرع"}
+                  {!isSubmitting && (
+                    <ArrowLeft
+                      size={18}
+                      className="transition-transform duration-300 group-hover/btn:-translate-x-1"
+                    />
+                  )}
+                </Button>
+
+                <p className="flex items-start gap-2.5 text-small text-ink-700/70">
+                  <ShieldCheck size={15} className="mt-0.5 shrink-0 text-brand-600" />
+                  بنشرك القطعة تقرّ بأنها مملوكة لك وصالحة للاستخدام الآمن، وفق
+                  معايير المنصة.
+                </p>
+              </form>
+            </Card>
+
+            {/* ---------- Sidebar ---------- */}
+            <div className="order-1 flex flex-col gap-5 lg:order-2">
+              <Reveal>
+                <Card tone="sand" padding="lg">
+                  <h2 className="font-display text-h3 font-bold text-ink-900">
+                    ما يحدث بعد الإرسال
+                  </h2>
+                  <ol className="mt-6 flex flex-col gap-5">
+                    {timeline.map((item, i) => (
+                      <li key={item.title} className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <IconTile tone="brand" size="sm">
+                            <item.icon size={16} strokeWidth={1.75} />
+                          </IconTile>
+                          {i < timeline.length - 1 && (
+                            <span className="mt-1 w-px flex-1 bg-sand-300" />
+                          )}
+                        </div>
+                        <div className="pb-1">
+                          <p className="font-semibold text-ink-900">
+                            {item.title}
+                          </p>
+                          <p className="mt-1 text-small text-pretty text-ink-700/80">
+                            {item.body}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </Card>
+              </Reveal>
+
+              <Reveal delay={110}>
+                <Card padding="lg">
+                  <h3 className="font-display text-h4 font-bold text-ink-900">
+                    قبل أن ترفع القطعة
+                  </h3>
+                  <ul className="mt-4 flex flex-col gap-3">
+                    {acceptRules.map((rule) => (
+                      <li
+                        key={rule}
+                        className="flex items-center gap-2.5 text-small text-ink-700/85"
+                      >
+                        <Check
+                          size={14}
+                          strokeWidth={3}
+                          className="shrink-0 text-brand-500"
+                        />
+                        {rule}
+                      </li>
+                    ))}
+                  </ul>
+                  <ButtonLink
+                    href="/policy#quality"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-5"
+                  >
+                    كل معايير الجودة
+                  </ButtonLink>
+                </Card>
+              </Reveal>
+
+              <Reveal delay={180}>
+                <Photo
+                  src="/images/clothing-neutral.jpg"
+                  alt="ملابس مرتّبة جاهزة للتبرع"
+                  ratio="4/3"
+                  shape="rounded"
+                  sizes="(max-width: 1024px) 100vw, 30vw"
+                  overlay="soft"
+                  className="shadow-md"
+                >
+                  <p className="absolute inset-x-0 bottom-0 p-5 text-small font-semibold text-white">
+                    قطعة واحدة صالحة أفضل من صندوق لا يُستخدم.
+                  </p>
+                </Photo>
+              </Reveal>
             </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
-                التصنيف الفرعي
-              </label>
-              <select
-                value={formData.sub_category}
-                onChange={(e) =>
-                  setFormData({ ...formData, sub_category: e.target.value })
-                }
-                className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-white outline-none"
-              >
-                {subCategoriesMap[formData.category]?.map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
+        </Container>
+      </Section>
+    </>
+  );
+}
 
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">
-              حالة العنصر
-            </label>
-            <select
-              value={formData.condition}
-              onChange={(e) =>
-                setFormData({ ...formData, condition: e.target.value })
-              }
-              className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-white outline-none"
-            >
-              <option value="ممتازة">ممتازة (شبه جديد)</option>
-              <option value="جيدة جداً">
-                جيدة جداً (نظيف وقابل للاستخدام الفوري)
-              </option>
-              <option value="مقبولة">مقبولة (يحتاج لصيانة بسيطة)</option>
-            </select>
-          </div>
+/* -------------------------------------------------------------------------- */
 
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">
-              صورة العنصر (إجبارية)
-            </label>
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center bg-slate-50 hover:bg-slate-100/50 transition-colors cursor-pointer relative">
-              <input
-                type="file"
-                accept="image/*"
-                required
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-              />
-              <Upload
-                className="mx-auto text-emerald-600 mb-2"
-                size={32}
-              />
-              <p className="text-sm font-bold text-slate-700">
-                {file
-                  ? file.name
-                  : "اضغط هنا لرفع الصورة أو اسحبها وأفلتها هنا"}
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                PNG, JPG, WEBP بحد أقصى 5MB
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-              <MapPin size={18} className="text-emerald-600" /> حدد موقع
-              التبرع بدقة على الخريطة
-            </label>
-            <p className="text-xs text-slate-500 mb-3">
-              ابحث عن مدينتك أو انقر مباشرة على الخريطة لتثبيت الموقع:
-            </p>
-            <MapPicker
-              onLocationSelect={(lat, lng) =>
-                setFormData({
-                  ...formData,
-                  location: `إحداثيات الخريطة: ${lat.toFixed(
-                    4
-                  )}, ${lng.toFixed(4)}`
-                })
-              }
-            />
-            <input
-              type="text"
-              required
-              placeholder="أو اكتب الموقع نصياً (مثال: الرياض، حي النخيل)"
-              value={formData.location}
-              onChange={(e) =>
-                setFormData({ ...formData, location: e.target.value })
-              }
-              className="w-full mt-3 px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-slate-50 focus:bg-white outline-none transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">
-              تفاصيل إضافية
-            </label>
-            <textarea
-              rows={3}
-              placeholder="اكتب تفاصيل إضافية تساعد المتطوع أو المستفيد..."
-              value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
-              className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-emerald-600 text-white py-4 rounded-xl font-extrabold hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50"
-          >
-            {loading ? "جاري النشر..." : "تأكيد ونشر التبرع في المنصة"}
-          </button>
-        </form>
+function StepLabel({
+  index,
+  title,
+  note,
+}: {
+  index: string;
+  title: string;
+  note?: string;
+}) {
+  return (
+    <div className="flex items-start gap-3.5">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-900 font-display text-small font-extrabold tabular-nums text-gold-300">
+        {index}
+      </span>
+      <div>
+        <h2 className="font-display text-h3 font-bold text-ink-900">{title}</h2>
+        {note && <p className="mt-1 text-small text-ink-700/70">{note}</p>}
       </div>
     </div>
   );

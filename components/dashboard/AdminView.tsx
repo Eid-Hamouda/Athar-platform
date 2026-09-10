@@ -1,358 +1,1151 @@
-import { useState } from "react";
-import { UserPlus, Users, PlusCircle, Package, ListFilter, Trash2, Search, Truck, X, MapPin as MapPinIcon, Sparkles, PhoneCall, MessageCircle, Map as MapIcon, ExternalLink } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { UserProfile, DonationItem, NeedRequest } from "@/types";
-import MapPicker from "@/components/MapPicker";
-import { analyzeItemAction } from "@/app/actions/aiActions";
-import toast from "react-hot-toast";
+"use client";
 
-const COLORS = ["#059669", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6"];
+import * as React from "react";
+import Image from "next/image";
+import toast from "react-hot-toast";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Legend,
+} from "recharts";
+import {
+  UserPlus,
+  Users,
+  Plus,
+  Package,
+  ListFilter,
+  Trash2,
+  Search,
+  Truck,
+  MapPin,
+  Map as MapIcon,
+  PhoneCall,
+  MessageCircle,
+  Clock,
+  BadgeCheck,
+  ChevronDown,
+  Inbox,
+} from "lucide-react";
+
+import type { UserProfile, NeedRequest } from "@/types";
+import { analyzeItemAction } from "@/app/actions/aiActions";
+import { cn, formatWhatsAppNumber, stripCoordinatesPrefix } from "@/lib/utils";
+import MapPicker from "@/components/MapPicker";
+import { Modal } from "@/components/ui/Modal";
+import { IconTile } from "@/components/ui/Card";
+import { Badge, StatusBadge, UrgencyBadge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Input, Select, Textarea, Field } from "@/components/ui/Input";
+import { FileDrop } from "@/components/ui/FileDrop";
+import {
+  PageHeader,
+  Surface,
+  Toolbar,
+  DetailItem,
+  ActionChip,
+} from "@/components/dashboard/ui/Layout";
+import {
+  DataTable,
+  THead,
+  TBody,
+  TR,
+  TH,
+  TD,
+  TableEmpty,
+  CellStack,
+  RowActions,
+  IconButton,
+} from "@/components/dashboard/ui/Table";
+import { StatCard, FilterTabs } from "@/components/dashboard/ui/Stat";
+
+const CHART_COLORS = ["#0a8163", "#ffaa20", "#3bbc93", "#b74606", "#635746"];
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "مسؤول",
+  donor: "متبرّع",
+  beneficiary: "مستفيد",
+  volunteer: "متطوّع",
+  organization: "جمعية",
+};
+
+const ROLE_OPTIONS = [
+  "admin",
+  "donor",
+  "beneficiary",
+  "volunteer",
+  "organization",
+];
+
+const ITEM_FILTERS = [
+  { id: "all", label: "الكل" },
+  { id: "available", label: "متاح" },
+  { id: "reserved", label: "قيد التوصيل" },
+  { id: "completed", label: "تم التسليم" },
+] as const;
+
+const NEED_FILTERS = [
+  { id: "all", label: "الكل" },
+  { id: "pending", label: "مفتوح" },
+  { id: "pending_delivery", label: "بانتظار التوصيل" },
+  { id: "completed", label: "مكتمل" },
+] as const;
+
+type ItemFilter = (typeof ITEM_FILTERS)[number]["id"];
+type NeedFilter = (typeof NEED_FILTERS)[number]["id"];
 
 interface AdminViewProps {
   activeTab: string;
-  allUsers: UserProfile[]; 
-  donations: any[]; // Using any to safely access new dynamic fields like contact_phone
-  needs: NeedRequest[]; 
+  allUsers: UserProfile[];
+  /** Rows carry delivery fields that aren't on the base DonationItem type. */
+  donations: any[];
+  needs: NeedRequest[];
   pendingBeneficiaries: UserProfile[];
-  newUser: any; 
+  newUser: any;
   setNewUser: (user: any) => void;
-  newItem: any; 
-  setNewItem: (item: any) => void; 
+  newItem: any;
+  setNewItem: (item: any) => void;
+  itemFile: File | null;
   setItemFile: (file: File | null) => void;
-  handleAdminCreateUser: (e: React.FormEvent) => void; 
+  handleAdminCreateUser: (e: React.FormEvent) => void;
   handleAdminCreateItem: (e: React.FormEvent) => void;
-  handleUpdateRole: (id: string, role: string) => void; 
+  handleUpdateRole: (id: string, role: string) => void;
   handleApproveUser: (id: string) => void;
-  handleDeleteUser: (id: string) => void; 
-  handleDeleteItem: (id: string) => void; 
+  handleDeleteUser: (id: string) => void;
+  handleDeleteItem: (id: string) => void;
   handleDeleteNeed: (id: string) => void;
   handleAssignVolunteer: (donationId: string, volunteerId: string) => void;
-  isAddUserModalOpen: boolean; 
+  isAddUserModalOpen: boolean;
   setIsAddUserModalOpen: (v: boolean) => void;
-  isAddItemModalOpen: boolean; 
+  isAddItemModalOpen: boolean;
   setIsAddItemModalOpen: (v: boolean) => void;
   isSubmitting: boolean;
 }
 
-export default function AdminView(props: AdminViewProps) {
-  const {
-    activeTab, allUsers, donations, needs, pendingBeneficiaries, newUser, setNewUser, newItem, setNewItem, setItemFile,
-    handleAdminCreateUser, handleAdminCreateItem, handleUpdateRole, handleApproveUser, handleDeleteUser, handleDeleteItem, handleDeleteNeed, handleAssignVolunteer,
-    isAddUserModalOpen, setIsAddUserModalOpen, isAddItemModalOpen, setIsAddItemModalOpen, isSubmitting
-  } = props;
+function mapsHref(query: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
 
-  const [userSearchTerm, setUserSearchTerm] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+function Thumb({ src, size = 36 }: { src?: string | null; size?: number }) {
+  return (
+    <Image
+      src={src || "/placeholder-item.svg"}
+      alt=""
+      width={size}
+      height={size}
+      className="shrink-0 rounded-md object-cover ring-1 ring-sand-200"
+      style={{ width: size, height: size }}
+    />
+  );
+}
 
-  const filteredUsers = allUsers.filter((u) => u.full_name?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.role.toLowerCase().includes(userSearchTerm.toLowerCase()));
+export default function AdminView({
+  activeTab,
+  allUsers,
+  donations,
+  needs,
+  pendingBeneficiaries,
+  newUser,
+  setNewUser,
+  newItem,
+  setNewItem,
+  itemFile,
+  setItemFile,
+  handleAdminCreateUser,
+  handleAdminCreateItem,
+  handleUpdateRole,
+  handleApproveUser,
+  handleDeleteUser,
+  handleDeleteItem,
+  handleDeleteNeed,
+  handleAssignVolunteer,
+  isAddUserModalOpen,
+  setIsAddUserModalOpen,
+  isAddItemModalOpen,
+  setIsAddItemModalOpen,
+  isSubmitting,
+}: AdminViewProps) {
+  const [userSearch, setUserSearch] = React.useState("");
+  const [roleFilter, setRoleFilter] = React.useState("all");
+  const [itemSearch, setItemSearch] = React.useState("");
+  const [itemFilter, setItemFilter] = React.useState<ItemFilter>("all");
+  const [needFilter, setNeedFilter] = React.useState<NeedFilter>("all");
+  const [expandedItem, setExpandedItem] = React.useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+
   const volunteers = allUsers.filter((u) => u.role === "volunteer");
 
-  // Dynamic AI Vision Logic for Admins
-  const handleImageChange = async (file: File | null) => {
-    if (!file) return;
-    setItemFile(file);
-    setIsAnalyzing(true);
-    const toastId = toast.loading("🤖 الذكاء الاصطناعي يحلل الصورة ويصنفها ديناميكياً...");
+  /* ---------------- Filtering ---------------- */
+  const filteredUsers = allUsers.filter((u) => {
+    const term = userSearch.trim().toLowerCase();
+    const matchesRole = roleFilter === "all" || u.role === roleFilter;
+    const matchesTerm =
+      !term ||
+      (u.full_name ?? "").toLowerCase().includes(term) ||
+      (ROLE_LABELS[u.role] ?? u.role).includes(term);
+    return matchesRole && matchesTerm;
+  });
 
-    const formData = new FormData();
-    formData.append("image", file);
+  const filteredItems = donations.filter((d) => {
+    const term = itemSearch.trim().toLowerCase();
+    const matchesStatus = itemFilter === "all" || d.status === itemFilter;
+    const matchesTerm =
+      !term ||
+      (d.title ?? "").toLowerCase().includes(term) ||
+      (d.category ?? "").toLowerCase().includes(term);
+    return matchesStatus && matchesTerm;
+  });
+
+  const filteredNeeds = needs.filter(
+    (n) => needFilter === "all" || n.status === needFilter
+  );
+
+  /* ---------------- AI classification ---------------- */
+  const handleImage = async (file: File | null) => {
+    setItemFile(file);
+    if (!file) return;
+
+    setIsAnalyzing(true);
+    const toastId = toast.loading("الذكاء الاصطناعي يصنّف الصورة…");
 
     try {
-      const analysis = await analyzeItemAction(formData);
-      setIsAnalyzing(false);
+      const payload = new FormData();
+      payload.append("image", file);
+      const analysis = await analyzeItemAction(payload);
+      if (!analysis) throw new Error("no-analysis");
 
-      if (analysis) {
-        setNewItem({
-          ...newItem,
-          title: analysis.suggested_title || newItem.title,
-          category: analysis.category || newItem.category,
-          sub_category: analysis.sub_category || newItem.sub_category,
-          condition: analysis.condition || newItem.condition,
-        });
-        toast.success(`✨ تم التصنيف بنجاح: ${analysis.category} - ${analysis.sub_category}`, { id: toastId });
-      } else {
-        throw new Error();
-      }
+      setNewItem({
+        ...newItem,
+        title: analysis.suggested_title || newItem.title,
+        category: analysis.category || newItem.category,
+        sub_category: analysis.sub_category || newItem.sub_category,
+        condition: analysis.condition || newItem.condition,
+      });
+
+      toast.success(`${analysis.category} — ${analysis.sub_category}`, {
+        id: toastId,
+      });
     } catch {
+      toast.error("تعذّر التصنيف. عبّئ الحقول يدوياً.", { id: toastId });
+    } finally {
       setIsAnalyzing(false);
-      toast.error("تعذر تصنيف الصورة تلقائياً، يرجى تعبئة الحقول يدويياً.", { id: toastId });
     }
   };
 
-  // Helper function to format Syrian numbers for WhatsApp API
-  const formatWhatsAppNumber = (phone: string) => {
-    if (!phone) return "";
-    let cleaned = phone.replace(/\D/g, "");
-    if (cleaned.startsWith("0")) cleaned = cleaned.substring(1);
-    if (!cleaned.startsWith("963")) cleaned = "963" + cleaned;
-    return `https://wa.me/${cleaned}`;
+  /* ---------------- Chart data ---------------- */
+  const usersByRole = React.useMemo(
+    () =>
+      ROLE_OPTIONS.map((role, i) => ({
+        name: ROLE_LABELS[role],
+        value: allUsers.filter((u) => u.role === role).length,
+        // Pie reads `fill` off each datum, so no deprecated <Cell> needed.
+        fill: CHART_COLORS[i % CHART_COLORS.length],
+      })).filter((entry) => entry.value > 0),
+    [allUsers]
+  );
+
+  const donationsByCategory = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const donation of donations) {
+      const key = donation.category || "غير مصنّف";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, العدد]) => ({ name, العدد }))
+      .sort((a, b) => b.العدد - a.العدد)
+      .slice(0, 6);
+  }, [donations]);
+
+  const chartTooltip = {
+    borderRadius: 10,
+    border: "1px solid #ece5d9",
+    fontSize: 12,
+    boxShadow: "0 8px 24px -6px rgba(9,23,19,.12)",
   };
 
-  const usersByRoleData = [
-    { name: "متبرع", value: allUsers.filter((u) => u.role === "donor").length },
-    { name: "مستفيد", value: allUsers.filter((u) => u.role === "beneficiary").length },
-    { name: "منظمة", value: allUsers.filter((u) => u.role === "organization").length },
-    { name: "متطوع", value: allUsers.filter((u) => u.role === "volunteer").length },
-    { name: "مسؤول", value: allUsers.filter((u) => u.role === "admin").length }
-  ];
-
-  const donationsByCategoryData = [
-    { name: "ملابس", العدد: donations.filter((d) => d.category === "ملابس").length },
-    { name: "كتب", العدد: donations.filter((d) => d.category === "كتب").length },
-    { name: "أثاث", العدد: donations.filter((d) => d.category === "أثاث").length },
-    { name: "أجهزة", العدد: donations.filter((d) => d.category === "أجهزة").length },
-    { name: "أخرى", العدد: donations.filter((d) => d.category === "أخرى").length }
-  ];
-
+  /* ======================================================================== */
+  /* Overview                                                                 */
+  /* ======================================================================== */
   if (activeTab === "overview") {
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"><h3 className="text-sm text-slate-500 mb-1">المستخدمين</h3><p className="text-3xl font-extrabold text-slate-900">{allUsers.length}</p></div>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"><h3 className="text-sm text-slate-500 mb-1">التبرعات</h3><p className="text-3xl font-extrabold text-slate-900">{donations.length}</p></div>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"><h3 className="text-sm text-slate-500 mb-1">الاحتياجات</h3><p className="text-3xl font-extrabold text-slate-900">{needs.length}</p></div>
-          <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-sm"><h3 className="text-sm text-amber-700 mb-1">بانتظار الاعتماد</h3><p className="text-3xl font-extrabold text-amber-600">{pendingBeneficiaries.length}</p></div>
+      <>
+        <PageHeader
+          title="نظرة عامة"
+          description="حالة المنصة الآن: المستخدمون، القطع المسجّلة، والطلبات التي تنتظر إجراءً."
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="المستخدمون"
+            value={allUsers.length}
+            hint={`${volunteers.length} متطوّع`}
+            icon={Users}
+          />
+          <StatCard
+            label="القطع المسجّلة"
+            value={donations.length}
+            hint={`${donations.filter((d) => d.status === "available").length} متاحة الآن`}
+            icon={Package}
+          />
+          <StatCard
+            label="طلبات الاحتياج"
+            value={needs.length}
+            hint={`${needs.filter((n) => n.status === "pending").length} مفتوح`}
+            icon={ListFilter}
+          />
+          <StatCard
+            label="بانتظار الاعتماد"
+            value={pendingBeneficiaries.length}
+            hint={pendingBeneficiaries.length > 0 ? "يحتاج إجراءً" : "لا شيء معلّق"}
+            icon={Clock}
+            attention={pendingBeneficiaries.length > 0}
+          />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-80 flex flex-col"><h3 className="text-lg font-bold text-slate-800 mb-4 text-center">توزيع المستخدمين</h3><div dir="ltr" className="w-full h-full"><ResponsiveContainer width="100%" height="100%"><PieChart margin={{ top: 0, right: 0, bottom: 20, left: 0 }}><Pie data={usersByRoleData} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">{usersByRoleData.map((e, i) => (<Cell key={`c-${i}`} fill={COLORS[i % COLORS.length]} />))}</Pie><RechartsTooltip /><Legend verticalAlign="bottom" height={36} iconType="circle" /></PieChart></ResponsiveContainer></div></div>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm h-80 flex flex-col"><h3 className="text-lg font-bold text-slate-800 mb-4 text-center">التبرعات حسب الفئة</h3><div dir="ltr" className="w-full h-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={donationsByCategoryData} margin={{ top: 20, right: 10, bottom: 20, left: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="name" reversed={true} axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} /><YAxis orientation="right" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 12 }} width={40} /><RechartsTooltip cursor={{ fill: "#f1f5f9" }} /><Legend verticalAlign="bottom" height={36} iconType="circle" /><Bar dataKey="العدد" fill="#059669" radius={[4, 4, 0, 0]} barSize={40} /></BarChart></ResponsiveContainer></div></div>
+
+        {/* Approvals queue — the one thing that blocks other people */}
+        {pendingBeneficiaries.length > 0 && (
+          <Surface
+            flush
+            className="mt-6"
+            title="حسابات تنتظر الاعتماد"
+            description="لا يستطيع هؤلاء تقديم طلبات أو حجز قطع قبل اعتمادهم."
+          >
+            <DataTable minWidth="32rem">
+              <THead>
+                <TR>
+                  <TH>المستخدم</TH>
+                  <TH>الدور</TH>
+                  <TH justify="end">إجراء</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {pendingBeneficiaries.map((user) => (
+                  <TR key={user.id}>
+                    <TD>
+                      <CellStack primary={user.full_name || "بلا اسم"} />
+                    </TD>
+                    <TD>
+                      <Badge variant="neutral">
+                        {ROLE_LABELS[user.role] ?? user.role}
+                      </Badge>
+                    </TD>
+                    <TD justify="end">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleApproveUser(user.id)}
+                      >
+                        <BadgeCheck size={14} />
+                        اعتماد
+                      </Button>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </DataTable>
+          </Surface>
+        )}
+
+        {/* Charts */}
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <Surface title="توزيع المستخدمين حسب الدور">
+            <div dir="ltr" className="h-60">
+              {usersByRole.length === 0 ? (
+                <p className="pt-20 text-center text-xs text-ink-700/70">
+                  لا بيانات بعد
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={usersByRole}
+                      cx="50%"
+                      cy="46%"
+                      innerRadius={48}
+                      outerRadius={72}
+                      paddingAngle={3}
+                      dataKey="value"
+                      stroke="none"
+                    />
+                    <RechartsTooltip contentStyle={chartTooltip} />
+                    <Legend
+                      height={28}
+                      iconType="circle"
+                      iconSize={8}
+                      formatter={(value) => (
+                        <span style={{ fontSize: 12, color: "#635746" }}>
+                          {value}
+                        </span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Surface>
+
+          <Surface title="القطع حسب الفئة">
+            <div dir="ltr" className="h-60">
+              {donationsByCategory.length === 0 ? (
+                <p className="pt-20 text-center text-xs text-ink-700/70">
+                  لا بيانات بعد
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={donationsByCategory}
+                    margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      stroke="#ece5d9"
+                    />
+                    <XAxis
+                      dataKey="name"
+                      reversed
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "#635746", fontSize: 11 }}
+                    />
+                    <YAxis
+                      orientation="right"
+                      allowDecimals={false}
+                      axisLine={false}
+                      tickLine={false}
+                      width={28}
+                      tick={{ fill: "#635746", fontSize: 11 }}
+                    />
+                    <RechartsTooltip
+                      cursor={{ fill: "#f7f3ec" }}
+                      contentStyle={chartTooltip}
+                    />
+                    <Bar
+                      dataKey="العدد"
+                      fill="#0a8163"
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={34}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Surface>
         </div>
-      </div>
+
+        {/* Recent activity */}
+        <Surface flush className="mt-6" title="أحدث القطع المسجّلة">
+          <DataTable minWidth="34rem">
+            <THead>
+              <TR>
+                <TH>القطعة</TH>
+                <TH>الفئة</TH>
+                <TH justify="end">المرحلة</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {donations.length === 0 ? (
+                <TableEmpty
+                  colSpan={3}
+                  icon={Inbox}
+                  title="لا قطع مسجّلة"
+                  body="ستظهر هنا آخر القطع التي يرفعها المتبرعون."
+                />
+              ) : (
+                donations.slice(0, 5).map((item) => (
+                  <TR key={item.id}>
+                    <TD>
+                      <CellStack
+                        media={<Thumb src={item.image_url} />}
+                        primary={item.title}
+                        secondary={item.sub_category}
+                      />
+                    </TD>
+                    <TD className="text-ink-700/80">{item.category}</TD>
+                    <TD justify="end">
+                      <StatusBadge status={item.status} />
+                    </TD>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </DataTable>
+        </Surface>
+      </>
     );
   }
-    const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-emerald-50 text-emerald-700 border-emerald-200">مكتمل</span>;
-      case 'pending_delivery':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-blue-50 text-blue-700 border-blue-200">بانتظار التوصيل</span>;
-      case 'pending':
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-amber-50 text-amber-700 border-amber-200">بانتظار التبرع</span>;
-      default:
-        return <span className="px-2.5 py-1 rounded-lg text-xs font-bold border bg-slate-50 text-slate-700 border-slate-200">{status}</span>;
-    }
-  };
+
+  /* ======================================================================== */
+  /* Management tabs                                                          */
+  /* ======================================================================== */
   return (
     <>
-      {isAddUserModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><UserPlus className="text-emerald-600" /> إضافة مستخدم جديد</h2>
-              <button onClick={() => setIsAddUserModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
-            </div>
-            <form onSubmit={handleAdminCreateUser} className="grid grid-cols-1 gap-4">
-              <input type="text" placeholder="الاسم الكامل" required value={newUser.fullName} onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })} className="px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
-              <input type="email" placeholder="البريد الإلكتروني" required value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} className="px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
-              <input type="password" placeholder="كلمة المرور" required value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} className="px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
-              <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} className="px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-white outline-none focus:ring-2 focus:ring-emerald-500">
-                <option value="admin">مسؤول</option><option value="volunteer">متطوع</option><option value="organization">منظمة</option><option value="beneficiary">مستفيد</option><option value="donor">متبرع</option>
-              </select>
-              <button type="submit" disabled={isSubmitting} className="w-full mt-2 bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50">إنشاء وحفظ الحساب</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isAddItemModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <PlusCircle className="text-emerald-600" /> إضافة عنصر للكاتالوج 
-                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1 font-normal"><Sparkles size={12}/> مدعوم بالذكاء الاصطناعي</span>
-              </h2>
-              <button onClick={() => setIsAddItemModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
-            </div>
-            <form onSubmit={handleAdminCreateItem} className="space-y-5">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">صورة العنصر (ارفعها أولاً للتحليل التلقائي)</label>
-                <input type="file" accept="image/*" required onChange={(e) => handleImageChange(e.target.files?.[0] || null)} className="w-full text-sm file:py-2 file:px-4 file:rounded-xl file:bg-emerald-50 file:text-emerald-700 border border-slate-200 rounded-xl p-2 bg-slate-50" />
-                {isAnalyzing && <p className="text-xs text-emerald-600 font-bold mt-2 animate-pulse">✨ جارٍ تحليل الصورة بواسطة الذكاء الاصطناعي...</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">عنوان العنصر</label>
-                <input type="text" placeholder="مثال: معطف شتوي بحالة ممتازة" required value={newItem.title} onChange={(e) => setNewItem({ ...newItem, title: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none focus:ring-2" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">الفئة الرئيسية</label>
-                  <input type="text" placeholder="مثال: ملابس، كتب..." required value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">التصنيف الفرعي</label>
-                  <input type="text" placeholder="مثال: شتوي، مدرسي..." required value={newItem.sub_category} onChange={(e) => setNewItem({ ...newItem, sub_category: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">حالة العنصر</label>
-                <select value={newItem.condition || "ممتازة"} onChange={(e) => setNewItem({ ...newItem, condition: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-white outline-none">
-                  <option value="ممتازة">ممتازة</option>
-                  <option value="جيدة جداً">جيدة جداً</option>
-                  <option value="مقبولة">مقبولة</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">الوصف والتفاصيل</label>
-                <textarea rows={3} placeholder="اكتب وصفاً تفصيلياً للعنصر..." required value={newItem.description || ""} onChange={(e) => setNewItem({ ...newItem, description: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm outline-none" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5"><MapPinIcon size={16} className="text-emerald-600" /> الموقع الجغرافي للمتبرع</label>
-                <MapPicker onLocationSelect={(lat, lng) => setNewItem({ ...newItem, location: `إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}` })} />
-                <input type="text" placeholder="أو اكتب الموقع نصياً" required value={newItem.location} onChange={(e) => setNewItem({ ...newItem, location: e.target.value })} className="w-full mt-3 px-4 py-3.5 rounded-xl border border-slate-200 text-sm bg-slate-50 outline-none" />
-              </div>
-
-              <button type="submit" disabled={isSubmitting || isAnalyzing} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50">نشر وحفظ في الكاتالوج</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {activeTab === "manage-users" && (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm overflow-x-auto animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Users className="text-emerald-600" /> إدارة المستخدمين</h2>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="text" placeholder="ابحث بالاسم أو الدور..." value={userSearchTerm} onChange={(e) => setUserSearchTerm(e.target.value)} className="pl-4 pr-10 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 outline-none w-full" />
-              </div>
-              <button onClick={() => setIsAddUserModalOpen(true)} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 shrink-0">
-                <UserPlus size={18} /> <span className="hidden sm:inline">مستخدم جديد</span>
-              </button>
-            </div>
-          </div>
-          <div className="space-y-4 min-w-[600px]">
-            {filteredUsers.map((u) => (
-              <div key={u.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-200/80 hover:bg-slate-100/50">
-                <div>
-                  <p className="font-bold text-slate-900">{u.full_name}</p>
-                  <p className="text-xs text-slate-500 mt-1">الدور: <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">{u.role}</span> | الحالة: {u.is_approved ? "معتمد" : <span className="text-amber-600 font-bold">معلق</span>}</p>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <select value={u.role} onChange={(e) => handleUpdateRole(u.id, e.target.value)} className="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs outline-none">
-                    <option value="admin">مسؤول</option><option value="volunteer">متطوع</option><option value="organization">منظمة</option><option value="beneficiary">مستفيد</option><option value="donor">متبرع</option>
-                  </select>
-                  {!u.is_approved && <button onClick={() => handleApproveUser(u.id)} className="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium">اعتماد</button>}
-                  <button onClick={() => handleDeleteUser(u.id)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16} /></button>
-                </div>
-              </div>
+      {/* ---------------- Add user modal ---------------- */}
+      <Modal
+        isOpen={isAddUserModalOpen}
+        onClose={() => setIsAddUserModalOpen(false)}
+        icon={
+          <IconTile tone="brand" size="lg">
+            <UserPlus size={23} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="إضافة مستخدم"
+        description="إنشاء الحسابات يدوياً يتطلّب مفتاح خدمة، لذا هذه العملية محاكاة حالياً"
+      >
+        <form onSubmit={handleAdminCreateUser} className="flex flex-col gap-5">
+          <Input
+            label="الاسم الكامل"
+            required
+            value={newUser.fullName}
+            onChange={(e) =>
+              setNewUser({ ...newUser, fullName: e.target.value })
+            }
+          />
+          <Input
+            type="email"
+            dir="ltr"
+            label="البريد الإلكتروني"
+            required
+            value={newUser.email}
+            onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+          />
+          <Input
+            type="password"
+            dir="ltr"
+            label="كلمة المرور"
+            required
+            value={newUser.password}
+            onChange={(e) =>
+              setNewUser({ ...newUser, password: e.target.value })
+            }
+          />
+          <Select
+            label="الدور"
+            value={newUser.role}
+            onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+          >
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role]}
+              </option>
             ))}
-          </div>
-        </div>
-      )}
+          </Select>
 
-      {activeTab === "manage-items" && (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm animate-in fade-in">
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Package className="text-emerald-600" /> إدارة العناصر والتبرعات</h2>
-            <button onClick={() => setIsAddItemModalOpen(true)} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-emerald-700">
-              <PlusCircle size={18} /> إضافة عنصر للكاتالوج
-            </button>
-          </div>
-          <div className="space-y-4">
-            {donations.map((item) => {
-              const isRequested = item.status === "reserved" || item.status === "completed";
-              const cleanDeliveryLocation = item.delivery_location ? item.delivery_location.replace("إحداثيات الخريطة:", "").replace("إحداثيات:", "").trim() : "";
-              
-              return (
-                <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-start p-5 bg-slate-50 rounded-2xl border border-slate-200/80 gap-4 hover:bg-white transition-colors shadow-sm">
-                  <div className="flex items-start gap-4 w-full">
-                    <img src={item.image_url || "/hero.png"} alt="" className="w-20 h-20 rounded-xl object-cover border border-slate-200 shrink-0" />
-                    <div className="flex-1">
-                      <div className="flex justify-between">
-                        <p className="font-bold text-slate-900 text-lg">{item.title}</p>
-                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg ${item.status === "completed" ? "bg-emerald-100 text-emerald-700" : item.status === "reserved" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}>{item.status}</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">الفئة: {item.category} - {item.sub_category} | الحالة: {item.condition} | المصدر: {item.location}</p>
-                      <p className="text-xs text-slate-400 mt-1">{item.description}</p>
-                      
-                      {/* Delivery and Assignment Details */}
-                      {isRequested ? (
-                        <div className="mt-4 bg-white p-4 rounded-xl border border-emerald-100 shadow-sm space-y-4">
-                          {/* Contact and Delivery Details */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-xs font-bold text-slate-700 mb-1">تفاصيل التوصيل للمستفيد:</p>
-                              <p className="text-sm text-slate-600 line-clamp-2">{item.delivery_address || "لم يتم تحديد عنوان التوصيل"}</p>
-                              {cleanDeliveryLocation && (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanDeliveryLocation)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold bg-slate-100 text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-200 transition-colors">
-                                  <MapIcon size={14} className="text-emerald-600" /> عرض على الخريطة
-                                </a>
-                              )}
-                            </div>
-                            
-                            {item.contact_phone && (
-                              <div>
-                                <p className="text-xs font-bold text-slate-700 mb-1.5">رقم التواصل:</p>
-                                <div className="flex flex-wrap gap-2">
-                                  <a href={`tel:${item.contact_phone}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition-colors">
-                                    <PhoneCall size={14} /> اتصال
-                                  </a>
-                                  <a href={formatWhatsAppNumber(item.contact_phone)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white text-xs font-bold rounded-lg hover:bg-[#128C7E] transition-colors">
-                                    <MessageCircle size={14} /> واتساب
-                                  </a>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Assignment Dropdown */}
-                          <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200 w-fit">
-                            <Truck size={14} className="text-emerald-600" />
-                            <label className="text-xs font-bold text-slate-700">تعيين المندوب:</label>
-                            <select value={item.volunteer_id || ""} onChange={(e) => handleAssignVolunteer(item.id, e.target.value)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium bg-white outline-none focus:ring-2 focus:ring-emerald-500 min-w-[150px]">
-                              <option value="">-- بانتظار التعيين --</option>
-                              {volunteers.map((v) => <option key={v.id} value={v.id}>{v.full_name}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-3 p-2.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-xl border border-amber-200 flex items-center gap-2 w-fit">
-                          التبرع متاح في الكاتالوج. سيتاح تعيين المتطوع بعد طلبه من المستفيد.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <button onClick={() => handleDeleteItem(item.id)} className="p-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors shrink-0"><Trash2 size={18} /></button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            full
+            disabled={isSubmitting}
+          >
+            إنشاء الحساب
+          </Button>
+        </form>
+      </Modal>
 
-      {activeTab === "manage-needs" && (
-  <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm animate-in fade-in">
-    <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-      <ListFilter className="text-emerald-600" /> طلبات الاحتياج المسجلة
-    </h2>
-    <div className="space-y-4">
-      {needs.map((n) => (
-        <div key={n.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
-          <div>
-            <div className="flex items-center gap-3 mb-1.5">
-              <p className="font-bold text-slate-900">{n.title}</p>
-              {/* هنا يتم عرض شارة الحالة الجديدة */}
-              {getStatusBadge(n.status)}
+      {/* ---------------- Add item modal ---------------- */}
+      <Modal
+        isOpen={isAddItemModalOpen}
+        onClose={() => setIsAddItemModalOpen(false)}
+        size="lg"
+        icon={
+          <IconTile tone="gold" size="lg">
+            <Plus size={23} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="إضافة قطعة للكاتالوج"
+        description="ارفع الصورة أولاً ليتولّى النظام التصنيف"
+      >
+        <form onSubmit={handleAdminCreateItem} className="flex flex-col gap-6">
+          <FileDrop
+            file={itemFile}
+            onFile={handleImage}
+            busy={isAnalyzing}
+            required
+            label="صورة القطعة"
+          />
+
+          <Input
+            label="عنوان القطعة"
+            required
+            value={newItem.title}
+            onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
+            placeholder="مثال: معطف شتوي بحالة ممتازة"
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="الفئة"
+              required
+              value={newItem.category}
+              onChange={(e) =>
+                setNewItem({ ...newItem, category: e.target.value })
+              }
+              placeholder="ملابس، كتب…"
+            />
+            <Input
+              label="التصنيف الفرعي"
+              required
+              value={newItem.sub_category}
+              onChange={(e) =>
+                setNewItem({ ...newItem, sub_category: e.target.value })
+              }
+              placeholder="شتوي، مدرسي…"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select
+              label="حالة القطعة"
+              value={newItem.condition || "ممتازة"}
+              onChange={(e) =>
+                setNewItem({ ...newItem, condition: e.target.value })
+              }
+            >
+              <option value="ممتازة">ممتازة</option>
+              <option value="جيدة جداً">جيدة جداً</option>
+              <option value="مقبولة">مقبولة</option>
+            </Select>
+
+            <Select
+              label="تعيين متطوّع (اختياري)"
+              value={newItem.volunteer_id || ""}
+              onChange={(e) =>
+                setNewItem({ ...newItem, volunteer_id: e.target.value })
+              }
+            >
+              <option value="">— بلا تعيين —</option>
+              {volunteers.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.full_name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <Textarea
+            label="الوصف"
+            required
+            rows={3}
+            value={newItem.description || ""}
+            onChange={(e) =>
+              setNewItem({ ...newItem, description: e.target.value })
+            }
+            placeholder="وصف تفصيلي للقطعة…"
+          />
+
+          <Field label="موقع الاستلام">
+            <div className="overflow-hidden rounded-xl ring-1 ring-sand-200">
+              <MapPicker
+                onLocationSelect={(lat, lng) =>
+                  setNewItem({
+                    ...newItem,
+                    location: `إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                  })
+                }
+              />
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              الفئة: {n.category} | الأولوية: <span className="text-amber-600 font-bold">{n.urgency}</span> | الكمية: {n.quantity || 0}
-            </p>
-          </div>
-          <button onClick={() => handleDeleteNeed(n.id)} className="p-2.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors">
-            <Trash2 size={18} />
-          </button>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+            <Input
+              icon={<MapPin size={16} />}
+              required
+              value={newItem.location}
+              onChange={(e) =>
+                setNewItem({ ...newItem, location: e.target.value })
+              }
+              placeholder="أو اكتب الموقع نصياً"
+              className="mt-3"
+            />
+          </Field>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            full
+            disabled={isSubmitting || isAnalyzing}
+          >
+            {isSubmitting ? "جاري النشر…" : "نشر في الكاتالوج"}
+          </Button>
+        </form>
+      </Modal>
+
+      {/* ==================== Users ==================== */}
+      {activeTab === "manage-users" && (
+        <>
+          <PageHeader
+            title="المستخدمون"
+            description="غيّر الأدوار، اعتمد الحسابات المعلّقة، أو أزل حساباً."
+            actions={
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsAddUserModalOpen(true)}
+              >
+                <UserPlus size={15} />
+                مستخدم جديد
+              </Button>
+            }
+          />
+
+          <Surface flush>
+            <Toolbar>
+              <Input
+                density="compact"
+                icon={<Search size={15} />}
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="ابحث بالاسم أو الدور…"
+                className="sm:w-64"
+                aria-label="ابحث في المستخدمين"
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-700/60">
+                  {filteredUsers.length} من {allUsers.length}
+                </span>
+                <Select
+                  density="compact"
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="w-36"
+                  aria-label="تصفية بالدور"
+                >
+                  <option value="all">كل الأدوار</option>
+                  {ROLE_OPTIONS.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </Toolbar>
+
+            <DataTable minWidth="46rem">
+              <THead>
+                <TR>
+                  <TH>المستخدم</TH>
+                  <TH>الدور</TH>
+                  <TH>حالة الحساب</TH>
+                  <TH justify="end">إجراءات</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredUsers.length === 0 ? (
+                  <TableEmpty
+                    colSpan={4}
+                    icon={Users}
+                    title="لا نتائج"
+                    body="لا يوجد مستخدم يطابق البحث أو التصفية الحالية."
+                  />
+                ) : (
+                  filteredUsers.map((user) => (
+                    <TR key={user.id}>
+                      <TD>
+                        <CellStack
+                          media={
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sand-100 text-xs font-bold text-ink-800 ring-1 ring-sand-200">
+                              {(user.full_name ?? "؟").trim().charAt(0)}
+                            </span>
+                          }
+                          primary={user.full_name || "بلا اسم"}
+                          secondary={ROLE_LABELS[user.role] ?? user.role}
+                        />
+                      </TD>
+                      <TD>
+                        <Select
+                          density="compact"
+                          value={user.role}
+                          onChange={(e) =>
+                            handleUpdateRole(user.id, e.target.value)
+                          }
+                          className="w-32"
+                          aria-label={`دور ${user.full_name}`}
+                        >
+                          {ROLE_OPTIONS.map((role) => (
+                            <option key={role} value={role}>
+                              {ROLE_LABELS[role]}
+                            </option>
+                          ))}
+                        </Select>
+                      </TD>
+                      <TD>
+                        {user.is_approved ? (
+                          <Badge variant="success">
+                            <BadgeCheck size={11} />
+                            معتمد
+                          </Badge>
+                        ) : (
+                          <Badge variant="warning">
+                            <Clock size={11} />
+                            معلّق
+                          </Badge>
+                        )}
+                      </TD>
+                      <TD justify="end">
+                        <RowActions>
+                          {!user.is_approved && (
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              onClick={() => handleApproveUser(user.id)}
+                            >
+                              اعتماد
+                            </Button>
+                          )}
+                          <IconButton
+                            tone="danger"
+                            aria-label={`حذف ${user.full_name}`}
+                            onClick={() => handleDeleteUser(user.id)}
+                          >
+                            <Trash2 size={15} />
+                          </IconButton>
+                        </RowActions>
+                      </TD>
+                    </TR>
+                  ))
+                )}
+              </TBody>
+            </DataTable>
+          </Surface>
+        </>
+      )}
+
+      {/* ==================== Items ==================== */}
+      {activeTab === "manage-items" && (
+        <>
+          <PageHeader
+            title="القطع والتبرعات"
+            description="افتح أي صف لرؤية تفاصيل التوصيل وتعيين المندوب المسؤول."
+            actions={
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsAddItemModalOpen(true)}
+              >
+                <Plus size={15} />
+                إضافة قطعة
+              </Button>
+            }
+          />
+
+          <Surface flush>
+            <Toolbar>
+              <Input
+                density="compact"
+                icon={<Search size={15} />}
+                value={itemSearch}
+                onChange={(e) => setItemSearch(e.target.value)}
+                placeholder="ابحث بالعنوان أو الفئة…"
+                className="sm:w-64"
+                aria-label="ابحث في القطع"
+              />
+              <FilterTabs
+                options={ITEM_FILTERS}
+                value={itemFilter}
+                onChange={setItemFilter}
+              />
+            </Toolbar>
+
+            <DataTable minWidth="56rem">
+              <THead>
+                <TR>
+                  <TH className="w-8" />
+                  <TH>القطعة</TH>
+                  <TH>الفئة</TH>
+                  <TH>حالة القطعة</TH>
+                  <TH>المرحلة</TH>
+                  <TH>المندوب</TH>
+                  <TH justify="end">إجراءات</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredItems.length === 0 ? (
+                  <TableEmpty
+                    colSpan={7}
+                    icon={Package}
+                    title="لا قطع مطابقة"
+                    body="جرّب تصفية أخرى، أو أضف قطعة جديدة للكاتالوج."
+                  />
+                ) : (
+                  filteredItems.map((item) => {
+                    const isOpen = expandedItem === item.id;
+                    const isRequested =
+                      item.status === "reserved" || item.status === "completed";
+                    const dropoff = stripCoordinatesPrefix(
+                      item.delivery_location
+                    );
+                    const assigned = volunteers.find(
+                      (v) => v.id === item.volunteer_id
+                    );
+
+                    return (
+                      <React.Fragment key={item.id}>
+                        <TR
+                          interactive
+                          onClick={() =>
+                            setExpandedItem(isOpen ? null : item.id)
+                          }
+                        >
+                          <TD className="pe-0">
+                            <ChevronDown
+                              size={15}
+                              className={cn(
+                                "text-ink-700/60 transition-transform",
+                                isOpen && "rotate-180"
+                              )}
+                            />
+                          </TD>
+                          <TD>
+                            <CellStack
+                              media={<Thumb src={item.image_url} />}
+                              primary={item.title}
+                              secondary={item.sub_category}
+                            />
+                          </TD>
+                          <TD className="text-ink-700/80">{item.category}</TD>
+                          <TD>
+                            {item.condition ? (
+                              <Badge variant="gold">{item.condition}</Badge>
+                            ) : (
+                              <span className="text-ink-700/60">—</span>
+                            )}
+                          </TD>
+                          <TD>
+                            <StatusBadge status={item.status} />
+                          </TD>
+                          <TD className="text-ink-700/80">
+                            {assigned?.full_name ?? (
+                              <span className="text-ink-700/70">
+                                غير معيّن
+                              </span>
+                            )}
+                          </TD>
+                          <TD justify="end">
+                            <RowActions>
+                              <IconButton
+                                tone="danger"
+                                aria-label={`حذف ${item.title}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteItem(item.id);
+                                }}
+                              >
+                                <Trash2 size={15} />
+                              </IconButton>
+                            </RowActions>
+                          </TD>
+                        </TR>
+
+                        {isOpen && (
+                          <tr className="bg-sand-50/80">
+                            <td colSpan={7} className="px-4 py-5">
+                              <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                                <DetailItem label="موقع الاستلام">
+                                  {stripCoordinatesPrefix(item.location) ||
+                                    "غير محدد"}
+                                  {stripCoordinatesPrefix(item.location) && (
+                                    <ActionChip
+                                      href={mapsHref(
+                                        stripCoordinatesPrefix(item.location)
+                                      )}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="mt-2 flex w-fit"
+                                    >
+                                      <MapIcon
+                                        size={12}
+                                        className="text-brand-600"
+                                      />
+                                      الخريطة
+                                    </ActionChip>
+                                  )}
+                                </DetailItem>
+
+                                <DetailItem label="الوصف">
+                                  {item.description || "—"}
+                                </DetailItem>
+
+                                {isRequested ? (
+                                  <>
+                                    <DetailItem label="عنوان التسليم">
+                                      {item.delivery_address ||
+                                        "لم يُحدَّد بعد"}
+                                      {dropoff && (
+                                        <ActionChip
+                                          href={mapsHref(dropoff)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="mt-2 flex w-fit"
+                                        >
+                                          <MapIcon
+                                            size={12}
+                                            className="text-brand-600"
+                                          />
+                                          الخريطة
+                                        </ActionChip>
+                                      )}
+                                    </DetailItem>
+
+                                    {item.contact_phone && (
+                                      <DetailItem label="تواصل المستفيد">
+                                        <div className="flex flex-wrap gap-2">
+                                          <ActionChip
+                                            tone="dark"
+                                            href={`tel:${item.contact_phone}`}
+                                          >
+                                            <PhoneCall size={12} />
+                                            اتصال
+                                          </ActionChip>
+                                          <ActionChip
+                                            tone="whatsapp"
+                                            href={formatWhatsAppNumber(
+                                              item.contact_phone
+                                            )}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                          >
+                                            <MessageCircle size={12} />
+                                            واتساب
+                                          </ActionChip>
+                                        </div>
+                                      </DetailItem>
+                                    )}
+
+                                    <DetailItem label="المندوب المكلّف">
+                                      <Select
+                                        density="compact"
+                                        value={item.volunteer_id || ""}
+                                        onChange={(e) =>
+                                          handleAssignVolunteer(
+                                            item.id,
+                                            e.target.value
+                                          )
+                                        }
+                                        className="w-full max-w-56"
+                                        aria-label="تعيين متطوّع"
+                                      >
+                                        <option value="">
+                                          — بانتظار التعيين —
+                                        </option>
+                                        {volunteers.map((v) => (
+                                          <option key={v.id} value={v.id}>
+                                            {v.full_name}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                    </DetailItem>
+                                  </>
+                                ) : (
+                                  <DetailItem label="التوصيل">
+                                    <span className="flex items-start gap-2 text-ink-700/75">
+                                      <Truck
+                                        size={14}
+                                        className="mt-0.5 shrink-0 text-ink-700/60"
+                                      />
+                                      متاحة في الكاتالوج — يُفعَّل تعيين
+                                      المندوب بعد حجزها من مستفيد.
+                                    </span>
+                                  </DetailItem>
+                                )}
+                              </dl>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </TBody>
+            </DataTable>
+          </Surface>
+        </>
+      )}
+
+      {/* ==================== Needs ==================== */}
+      {activeTab === "manage-needs" && (
+        <>
+          <PageHeader
+            title="طلبات الاحتياج"
+            description="الطلبات المقدّمة من المستفيدين والجمعيات المعتمدة."
+          />
+
+          <Surface flush>
+            <Toolbar>
+              <span className="text-xs text-ink-700/60">
+                {filteredNeeds.length} من {needs.length} طلب
+              </span>
+              <FilterTabs
+                options={NEED_FILTERS}
+                value={needFilter}
+                onChange={setNeedFilter}
+              />
+            </Toolbar>
+
+            <DataTable minWidth="50rem">
+              <THead>
+                <TR>
+                  <TH>الطلب</TH>
+                  <TH>الفئة</TH>
+                  <TH>الأولوية</TH>
+                  <TH>المتبقّي</TH>
+                  <TH>المرحلة</TH>
+                  <TH justify="end">إجراءات</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {filteredNeeds.length === 0 ? (
+                  <TableEmpty
+                    colSpan={6}
+                    icon={ListFilter}
+                    title="لا طلبات مطابقة"
+                    body="ستظهر هنا الطلبات بمجرد أن يقدّمها مستفيد معتمد."
+                  />
+                ) : (
+                  filteredNeeds.map((need) => (
+                    <TR key={need.id}>
+                      <TD>
+                        <CellStack
+                          primary={need.title}
+                          secondary={need.description}
+                        />
+                      </TD>
+                      <TD className="text-ink-700/80">
+                        {need.category}
+                        {need.sub_category ? ` — ${need.sub_category}` : ""}
+                      </TD>
+                      <TD>
+                        <UrgencyBadge urgency={need.urgency} />
+                      </TD>
+                      <TD className="font-semibold tabular-nums">
+                        {need.quantity ?? 0}
+                      </TD>
+                      <TD>
+                        <StatusBadge status={need.status} />
+                      </TD>
+                      <TD justify="end">
+                        <RowActions>
+                          <IconButton
+                            tone="danger"
+                            aria-label={`حذف ${need.title}`}
+                            onClick={() => handleDeleteNeed(need.id)}
+                          >
+                            <Trash2 size={15} />
+                          </IconButton>
+                        </RowActions>
+                      </TD>
+                    </TR>
+                  ))
+                )}
+              </TBody>
+            </DataTable>
+          </Surface>
+        </>
+      )}
     </>
   );
 }

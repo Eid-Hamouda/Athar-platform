@@ -1,327 +1,785 @@
+"use client";
+
+import * as React from "react";
+import Image from "next/image";
 import {
-  PlusCircle, Store, ShoppingCart, MapPin, Trash2, Package, HeartHandshake, ExternalLink, X, Phone, CheckCircle2
+  Plus,
+  ShoppingBag,
+  MapPin,
+  Trash2,
+  Package,
+  HeartHandshake,
+  ExternalLink,
+  Phone,
+  CheckCircle2,
+  Hash,
+  Sparkles,
+  Search,
+  Store,
 } from "lucide-react";
-import { UserProfile, DonationItem, NeedRequest } from "@/types";
+
+import type { UserProfile, DonationItem, NeedRequest } from "@/types";
+import { stripCoordinatesPrefix } from "@/lib/utils";
 import MapPicker from "@/components/MapPicker";
+import { Modal } from "@/components/ui/Modal";
+import { IconTile } from "@/components/ui/Card";
+import { Badge, StatusBadge, UrgencyBadge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Input, Select, Textarea, Field } from "@/components/ui/Input";
+import { EmptyState } from "@/components/ui/Feedback";
+import {
+  PageHeader,
+  Surface,
+  Toolbar,
+  ActionChip,
+} from "@/components/dashboard/ui/Layout";
+import {
+  DataTable,
+  THead,
+  TBody,
+  TR,
+  TH,
+  TD,
+  TableEmpty,
+  CellStack,
+  IconButton,
+} from "@/components/dashboard/ui/Table";
 
 interface BeneficiaryViewProps {
-  activeTab: string; 
+  activeTab: string;
   setActiveTab: (tab: string) => void;
-  profile: UserProfile | null; 
-  donations: DonationItem[]; 
-  needs: NeedRequest[]; 
+  profile: UserProfile | null;
+  donations: DonationItem[];
+  needs: NeedRequest[];
   cart: DonationItem[];
-  newNeed: any; 
+  newNeed: any;
   setNewNeed: (need: any) => void;
-  
-  // Delivery Checkout Props (for Cart)
-  deliveryAddress: string; 
+  deliveryAddress: string;
   setDeliveryAddress: (address: string) => void;
-  deliveryLocation: string; 
+  deliveryLocation: string;
   setDeliveryLocation: (loc: string) => void;
-  contactPhone: string; 
+  contactPhone: string;
   setContactPhone: (phone: string) => void;
-
   handleCreateNeed: (e: React.FormEvent) => void;
   handleAddToCart: (item: DonationItem) => void;
   handleRemoveFromCart: (id: string) => void;
   handleBulkSubmit: (e: React.FormEvent) => void;
-  isAddNeedModalOpen: boolean; 
+  isAddNeedModalOpen: boolean;
   setIsAddNeedModalOpen: (v: boolean) => void;
   isSubmitting: boolean;
 }
 
-export default function BeneficiaryView(props: BeneficiaryViewProps) {
-  const {
-    activeTab, setActiveTab, profile, donations, needs, cart,
-    newNeed, setNewNeed, deliveryAddress, setDeliveryAddress,
-    deliveryLocation, setDeliveryLocation, contactPhone, setContactPhone,
-    handleCreateNeed, handleAddToCart, handleRemoveFromCart, handleBulkSubmit,
-    isAddNeedModalOpen, setIsAddNeedModalOpen, isSubmitting
-  } = props;
+const ALL = "الكل";
 
-  // جلب الاقتراحات من الكاتالوج عند كتابة المستفيد في النموذج
-  const suggestions = donations.filter(d => 
-    d.status === "available" && 
-    newNeed.category && 
-    newNeed.category.length >= 2 &&
-    ((d.category || "").includes(newNeed.category) || (d.sub_category || "").includes(newNeed.category) || newNeed.category.includes(d.category || ""))
-  ).slice(0, 3);
+function mapsHref(query: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Compact catalogue tile — a grid is right here, since the choice is visual  */
+/* -------------------------------------------------------------------------- */
+
+function ItemTile({
+  item,
+  inCart,
+  onAdd,
+}: {
+  item: DonationItem;
+  inCart: boolean;
+  onAdd: () => void;
+}) {
+  const clean = stripCoordinatesPrefix(item.location);
+
+  return (
+    <article className="flex flex-col overflow-hidden rounded-xl bg-white ring-1 ring-sand-200 transition-shadow hover:shadow-md">
+      <div className="relative aspect-[4/3] bg-sand-100">
+        <Image
+          src={item.image_url || "/placeholder-item.svg"}
+          alt={item.title}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
+          className="object-cover"
+        />
+        {item.category && (
+          <span className="absolute top-2 start-2 rounded-md bg-white/90 px-2 py-1 text-micro font-bold text-ink-900 backdrop-blur-sm">
+            {item.category}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <h3 className="truncate text-sm font-bold text-ink-900" title={item.title}>
+          {item.title}
+        </h3>
+
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {item.sub_category && (
+            <Badge variant="neutral">{item.sub_category}</Badge>
+          )}
+          {item.condition && <Badge variant="gold">{item.condition}</Badge>}
+        </div>
+
+        {item.description && (
+          <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-ink-700/75">
+            {item.description}
+          </p>
+        )}
+
+        <div className="mt-auto pt-4">
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-ink-700/70">
+            <MapPin size={12} className="shrink-0 text-sand-500" />
+            <span className="truncate">{clean || "الموقع غير محدد"}</span>
+            {clean && (
+              <ActionChip
+                href={mapsHref(clean)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ms-auto shrink-0 px-1.5 py-1"
+                aria-label="افتح الموقع في الخرائط"
+              >
+                <ExternalLink size={11} />
+              </ActionChip>
+            )}
+          </p>
+
+          <Button
+            variant={inCart ? "outline" : "dark"}
+            size="sm"
+            full
+            disabled={inCart}
+            onClick={onAdd}
+          >
+            {inCart ? (
+              <>
+                <CheckCircle2 size={14} />
+                في السلة
+              </>
+            ) : (
+              <>
+                <ShoppingBag size={14} />
+                أضف للسلة
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+export default function BeneficiaryView({
+  activeTab,
+  setActiveTab,
+  profile,
+  donations,
+  needs,
+  cart,
+  newNeed,
+  setNewNeed,
+  deliveryAddress,
+  setDeliveryAddress,
+  setDeliveryLocation,
+  contactPhone,
+  setContactPhone,
+  handleCreateNeed,
+  handleAddToCart,
+  handleRemoveFromCart,
+  handleBulkSubmit,
+  isAddNeedModalOpen,
+  setIsAddNeedModalOpen,
+  isSubmitting,
+}: BeneficiaryViewProps) {
+  const [query, setQuery] = React.useState("");
+  const [category, setCategory] = React.useState(ALL);
+
+  const available = donations.filter((d) => d.status === "available");
+  const myNeeds = needs.filter((n) => n.beneficiary_id === profile?.id);
+
+  // Built from the data, not a fixed list: the classifier words categories
+  // freely, so anything hardcoded would hide items it named differently.
+  // Depends on `donations` (stable state) rather than the derived `available`.
+  const categoryOptions = React.useMemo(() => {
+    const present = new Set<string>();
+    for (const row of donations) {
+      if (row.status !== "available") continue;
+      const value = row.category?.trim();
+      if (value) present.add(value);
+    }
+    return [ALL, ...[...present].sort((a, b) => a.localeCompare(b, "ar"))];
+  }, [donations]);
+
+  const visible = available.filter((item) => {
+    const term = query.trim().toLowerCase();
+    const matchesCategory =
+      category === ALL ||
+      (item.category ?? "").includes(category) ||
+      category.includes(item.category ?? "");
+    const matchesTerm =
+      !term ||
+      (item.title ?? "").toLowerCase().includes(term) ||
+      (item.description ?? "").toLowerCase().includes(term);
+    return matchesCategory && matchesTerm;
+  });
+
+  // Live suggestions while the beneficiary types a category. Not memoised:
+  // `available` is rebuilt every render, so a useMemo over it never actually
+  // caches anything — it only adds a dependency the compiler can't preserve.
+  const wantedCategory = (newNeed.category ?? "").trim();
+  const suggestions =
+    wantedCategory.length < 2
+      ? []
+      : available
+          .filter(
+            (d) =>
+              (d.category ?? "").includes(wantedCategory) ||
+              (d.sub_category ?? "").includes(wantedCategory) ||
+              wantedCategory.includes(d.category ?? "")
+          )
+          .slice(0, 3);
+
+  const setNeedField = (key: string, value: string | number) =>
+    setNewNeed({ ...newNeed, [key]: value });
 
   return (
     <>
-      {/* نافذة تقديم طلب احتياج جديد */}
-      {isAddNeedModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[1000] flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <PlusCircle className="text-emerald-600" /> تقديم طلب احتياج جديد
-              </h2>
-              <button onClick={() => setIsAddNeedModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
-                <X size={24} />
-              </button>
-            </div>
-            
-            <form onSubmit={handleCreateNeed} className="space-y-6">
-              
-              {/* القسم الأول: تفاصيل الاحتياج الأساسية */}
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">عنوان الاحتياج</label>
-                  <input type="text" placeholder="مثال: أثاث مدرسي أو ملابس أطفال" required value={newNeed.title} onChange={(e) => setNewNeed({ ...newNeed, title: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all" />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">الفئة الرئيسية</label>
-                    <input type="text" required placeholder="مثال: ملابس، إلكترونيات..." value={newNeed.category} onChange={(e) => setNewNeed({ ...newNeed, category: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">التصنيف الفرعي</label>
-                    <input type="text" required placeholder="مثال: طاولات..." value={newNeed.sub_category} onChange={(e) => setNewNeed({ ...newNeed, sub_category: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  </div>
-                </div>
+      {/* ==================== New need modal ==================== */}
+      <Modal
+        isOpen={isAddNeedModalOpen}
+        onClose={() => setIsAddNeedModalOpen(false)}
+        size="lg"
+        icon={
+          <IconTile tone="brand" size="lg">
+            <Plus size={23} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="طلب احتياج جديد"
+        description="كل ما تكتبه هنا يبقى خاصاً ولا يُنشر باسمك"
+      >
+        <form onSubmit={handleCreateNeed} className="flex flex-col gap-6">
+          <Input
+            label="عنوان الاحتياج"
+            required
+            value={newNeed.title}
+            onChange={(e) => setNeedField("title", e.target.value)}
+            placeholder="مثال: طاولة دراسة لطفلين"
+          />
 
-                {/* قسم الاقتراحات الذكية */}
-                {suggestions.length > 0 && (
-                  <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 animate-in fade-in">
-                    <p className="text-sm font-bold text-emerald-800 mb-3 flex items-center gap-1.5"><CheckCircle2 size={16}/> وجدنا عناصر متاحة في المنصة قد تناسب طلبك:</p>
-                    <div className="space-y-3">
-                      {suggestions.map(s => (
-                        <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-3 rounded-lg border border-emerald-100 shadow-sm gap-3">
-                          <div className="flex items-center gap-3">
-                            <img src={s.image_url || "/hero.png"} alt="" className="w-12 h-12 rounded-md object-cover border border-slate-100" />
-                            <div>
-                              <p className="text-sm font-bold text-slate-900 line-clamp-1">{s.title}</p>
-                              <p className="text-xs text-slate-500 mt-1">{s.category} | الحالة: {s.condition}</p>
-                            </div>
-                          </div>
-                          <button type="button" onClick={() => { handleAddToCart(s); setIsAddNeedModalOpen(false); setActiveTab("cart"); }} className="text-xs bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-emerald-700 whitespace-nowrap">
-                            احجز هذا العنصر الآن
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">الكمية المطلوبة</label>
-                    <input type="number" min="1" required value={newNeed.quantity || 1} onChange={(e) => setNewNeed({ ...newNeed, quantity: parseInt(e.target.value) || 1 })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1.5">درجة الأولوية</label>
-                    <select value={newNeed.urgency} onChange={(e) => setNewNeed({ ...newNeed, urgency: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none bg-white">
-                      <option value="عادي">عادي</option>
-                      <option value="عاجل">عاجل</option>
-                      <option value="حرج طارئ">حرج طارئ</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1.5">تفاصيل إضافية ومبررات الطلب</label>
-                  <textarea rows={2} required placeholder="اكتب تفاصيل الاحتياج ومبرراته..." value={newNeed.description} onChange={(e) => setNewNeed({ ...newNeed, description: e.target.value })} className="w-full px-4 py-3.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                </div>
-              </div>
-
-              {/* القسم الثاني: معلومات التوصيل والاستلام */}
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-5">
-                <h3 className="text-sm font-bold text-slate-900 mb-2 border-b border-slate-200 pb-2">معلومات التواصل والتوصيل</h3>
-                
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
-                    <Phone size={16} className="text-emerald-600" /> رقم التواصل (سوريا)
-                  </label>
-                  <input type="tel" required placeholder="مثال: 0933123456" value={newNeed.contact_phone || ""} onChange={(e) => setNewNeed({ ...newNeed, contact_phone: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white" dir="ltr" />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
-                    <MapPin size={16} className="text-emerald-600" /> موقع التوصيل على الخريطة
-                  </label>
-                  <MapPicker onLocationSelect={(lat, lng) => setNewNeed({ ...newNeed, delivery_location: `إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}` })} />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2">العنوان بالتفصيل</label>
-                  <textarea rows={2} required placeholder="المدينة، الحي، الشارع، بناء رقم..." value={newNeed.delivery_address || ""} onChange={(e) => setNewNeed({ ...newNeed, delivery_address: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
-                </div>
-              </div>
-
-              <button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-lg">
-                إرسال الطلب للمنصة
-              </button>
-            </form>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              label="الفئة"
+              required
+              value={newNeed.category}
+              onChange={(e) => setNeedField("category", e.target.value)}
+              placeholder="أثاث، ملابس…"
+            />
+            <Input
+              label="التصنيف الفرعي"
+              required
+              value={newNeed.sub_category}
+              onChange={(e) => setNeedField("sub_category", e.target.value)}
+              placeholder="طاولات دراسة…"
+            />
           </div>
-        </div>
-      )}
 
-      {/* تبويب الكاتالوج */}
-      {activeTab === "catalog" && (
-        <div className="animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <Store className="text-emerald-600" /> الكاتالوج المتاح
-            </h2>
-            <button onClick={() => setActiveTab("cart")} className="px-5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-sm font-bold flex items-center gap-2 border border-emerald-200 transition-colors">
-              <ShoppingCart size={18} /> سلة الحجز ({cart.length})
-            </button>
-          </div>
-          {donations.filter((d) => d.status === "available").length === 0 ? (
-            <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
-              <Package size={48} className="mx-auto text-slate-300 mb-4" />
-              <p className="text-slate-500 font-medium">لا توجد عناصر متاحة للحجز في الوقت الحالي.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {donations.filter((d) => d.status === "available").map((item) => {
-                const cleanLocation = item.location ? item.location.replace("إحداثيات الخريطة:", "").replace("إحداثيات:", "").trim() : "";
-                return (
-                  <div key={item.id} className="bg-white rounded-3xl border border-slate-200/80 overflow-hidden shadow-sm flex flex-col justify-between group">
-                    <div>
-                      <div className="relative overflow-hidden h-48">
-                        <img src={item.image_url || "/hero.png"} alt="" className="w-full h-full object-cover border-b group-hover:scale-105 transition-transform duration-500" />
-                        <span className="absolute top-3 right-3 text-xs px-3 py-1 bg-white/90 text-emerald-800 rounded-full font-bold shadow-sm">{item.category}</span>
-                      </div>
-                      <div className="p-5">
-                        <h3 className="font-extrabold text-slate-900 text-lg">{item.title}</h3>
-                        <div className="flex items-center gap-2 mt-2">
-                           <p className="text-xs text-slate-500 bg-slate-100 w-fit px-2 py-0.5 rounded-md">{item.sub_category}</p>
-                           <p className="text-xs text-amber-700 bg-amber-50 w-fit px-2 py-0.5 rounded-md">الحالة: {item.condition}</p>
-                        </div>
-                        <p className="text-sm text-slate-500 mt-3 line-clamp-2" title={item.description}>{item.description}</p>
+          {/* Matching items already on the platform */}
+          {suggestions.length > 0 && (
+            <div className="rounded-xl bg-brand-50 p-4 ring-1 ring-brand-100">
+              <p className="flex items-center gap-2 text-xs font-bold text-brand-800">
+                <Sparkles size={13} />
+                وجدنا قطعاً متاحة قد تناسب طلبك الآن
+              </p>
+              <div className="mt-3 flex flex-col gap-2">
+                {suggestions.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-2.5 ring-1 ring-brand-100"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Image
+                        src={item.image_url || "/placeholder-item.svg"}
+                        alt=""
+                        width={36}
+                        height={36}
+                        className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-sand-200"
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-ink-900">
+                          {item.title}
+                        </p>
+                        <p className="mt-0.5 text-micro text-ink-700/70">
+                          {item.category} · {item.condition}
+                        </p>
                       </div>
                     </div>
-                    <div className="p-5 pt-0 mt-4 flex justify-between items-center">
-                      <div className="flex items-center bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 max-w-[50%]">
-                        <MapPin size={14} className="text-slate-400 shrink-0" />
-                        <span className="text-xs text-slate-600 font-medium mx-1.5 truncate" title={item.location}>{item.location}</span>
-                        {cleanLocation && (
-                           <a
-                             href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanLocation)}`}
-                             target="_blank"
-                             rel="noopener noreferrer"
-                             className="text-emerald-600 hover:text-emerald-700 bg-emerald-50 p-1 rounded-md shrink-0"
-                           >
-                             <ExternalLink size={12} />
-                           </a>
-                        )}
-                      </div>
-                      <button onClick={() => handleAddToCart(item)} className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors">إضافة للسلة</button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* تبويب السلة (إتمام الطلب) */}
-      {activeTab === "cart" && (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm max-w-2xl mx-auto animate-in fade-in">
-          <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <ShoppingCart className="text-emerald-600" /> إتمام الطلب الجماعي
-          </h2>
-          {cart.length === 0 ? (
-            <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-              <p className="text-slate-500 text-sm font-medium">سلتك فارغة حالياً.</p>
-              <button onClick={() => setActiveTab("catalog")} className="mt-4 px-6 py-2 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold hover:bg-emerald-200 transition-colors">تصفح الكاتالوج</button>
-            </div>
-          ) : (
-            <form onSubmit={handleBulkSubmit} className="space-y-6">
-              <div className="space-y-3">
-                {cart.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 bg-white rounded-2xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-4">
-                      <img src={item.image_url || "/hero.png"} alt="" className="w-14 h-14 rounded-xl object-cover border border-slate-100" />
-                      <div>
-                        <p className="font-bold text-slate-900 text-sm line-clamp-1">{item.title}</p>
-                        <div className="flex gap-2">
-                           <p className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md inline-block mt-1">{item.category}</p>
-                           <p className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md inline-block mt-1">{item.condition}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => handleRemoveFromCart(item.id)} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                      <Trash2 size={18} />
-                    </button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        handleAddToCart(item);
+                        setIsAddNeedModalOpen(false);
+                        setActiveTab("cart");
+                      }}
+                    >
+                      احجزها الآن
+                    </Button>
                   </div>
                 ))}
               </div>
-
-              {/* تفاصيل التوصيل */}
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-5">
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
-                    <Phone size={16} className="text-emerald-600" /> رقم التواصل (سوريا)
-                  </label>
-                  <input type="tel" required placeholder="مثال: 0933123456" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white" dir="ltr" />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
-                    <MapPin size={16} className="text-emerald-600" /> موقع التوصيل على الخريطة
-                  </label>
-                  <MapPicker onLocationSelect={(lat, lng) => setDeliveryLocation(`إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}`)} />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-800 mb-2">العنوان بالتفصيل</label>
-                  <textarea rows={2} required placeholder="المدينة، الحي، الشارع، بناء رقم..." value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
-                </div>
-              </div>
-
-              <button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                تأكيد حجز ({cart.length}) عناصر
-              </button>
-            </form>
+            </div>
           )}
-        </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input
+              type="number"
+              min={1}
+              label="الكمية المطلوبة"
+              required
+              value={newNeed.quantity || 1}
+              onChange={(e) =>
+                setNeedField("quantity", parseInt(e.target.value) || 1)
+              }
+            />
+            <Select
+              label="درجة الأولوية"
+              value={newNeed.urgency}
+              onChange={(e) => setNeedField("urgency", e.target.value)}
+            >
+              <option value="عادي">عادي</option>
+              <option value="عاجل">عاجل</option>
+              <option value="حرج طارئ">حرج طارئ</option>
+            </Select>
+          </div>
+
+          <Textarea
+            label="تفاصيل الطلب"
+            required
+            rows={3}
+            value={newNeed.description}
+            onChange={(e) => setNeedField("description", e.target.value)}
+            placeholder="اشرح الاحتياج ومبرّراته بإيجاز…"
+          />
+
+          <div className="rounded-xl bg-sand-100 p-4 ring-1 ring-sand-200">
+            <h3 className="text-sm font-bold text-ink-900">
+              التواصل والتوصيل
+            </h3>
+            <p className="mt-1 text-xs text-ink-700/70">
+              يراها المتطوّع المكلّف فقط، ولحظة تنفيذ المهمة فقط.
+            </p>
+
+            <div className="mt-4 flex flex-col gap-4">
+              <Input
+                type="tel"
+                dir="ltr"
+                icon={<Phone size={16} />}
+                label="رقم التواصل"
+                required
+                value={newNeed.contact_phone || ""}
+                onChange={(e) => setNeedField("contact_phone", e.target.value)}
+                placeholder="0933123456"
+              />
+
+              <Field label="موقع التوصيل على الخريطة">
+                <div className="overflow-hidden rounded-xl ring-1 ring-sand-200">
+                  <MapPicker
+                    onLocationSelect={(lat, lng) =>
+                      setNeedField(
+                        "delivery_location",
+                        `إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}`
+                      )
+                    }
+                  />
+                </div>
+              </Field>
+
+              <Textarea
+                label="العنوان بالتفصيل"
+                required
+                rows={2}
+                value={newNeed.delivery_address || ""}
+                onChange={(e) =>
+                  setNeedField("delivery_address", e.target.value)
+                }
+                placeholder="المدينة، الحي، الشارع، رقم البناء…"
+              />
+            </div>
+          </div>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            full
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "جاري الإرسال…" : "أرسل الطلب"}
+          </Button>
+        </form>
+      </Modal>
+
+      {/* ==================== Catalogue ==================== */}
+      {activeTab === "catalog" && (
+        <>
+          <PageHeader
+            title="الكاتالوج المتاح"
+            description="أضف ما تحتاجه إلى السلة، ثم أكّد الحجز مرة واحدة مع عنوان التوصيل."
+            actions={
+              <>
+                <Button
+                  variant={cart.length > 0 ? "gold" : "outline"}
+                  size="sm"
+                  onClick={() => setActiveTab("cart")}
+                >
+                  <ShoppingBag size={15} />
+                  السلة ({cart.length})
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsAddNeedModalOpen(true)}
+                >
+                  <Plus size={15} />
+                  طلب احتياج
+                </Button>
+              </>
+            }
+          />
+
+          <Surface flush>
+            <Toolbar>
+              <Input
+                density="compact"
+                icon={<Search size={15} />}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="ابحث في الكاتالوج…"
+                className="sm:w-64"
+                aria-label="ابحث في الكاتالوج"
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-ink-700/60">
+                  {visible.length} من {available.length}
+                </span>
+                <Select
+                  density="compact"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-40"
+                  aria-label="تصفية بالفئة"
+                >
+                  {categoryOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </Toolbar>
+
+            <div className="p-4">
+              {visible.length === 0 ? (
+                <EmptyState
+                  tone="white"
+                  icon={available.length === 0 ? Package : Store}
+                  title={
+                    available.length === 0
+                      ? "لا قطع متاحة الآن"
+                      : "لا نتائج مطابقة"
+                  }
+                  body={
+                    available.length === 0
+                      ? "قدّم طلب احتياج وسنشعرك فور توفّر قطعة تطابقه، دون أن تتابع الكاتالوج بنفسك."
+                      : "جرّب فئة أخرى أو أزل كلمة البحث."
+                  }
+                  action={
+                    available.length === 0 ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setIsAddNeedModalOpen(true)}
+                      >
+                        <Plus size={15} />
+                        قدّم طلب احتياج
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {visible.map((item) => (
+                    <ItemTile
+                      key={item.id}
+                      item={item}
+                      inCart={cart.some((c) => c.id === item.id)}
+                      onAdd={() => handleAddToCart(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </Surface>
+        </>
       )}
 
-      {/* تبويب طلباتي السابقة */}
+      {/* ==================== Cart / checkout ==================== */}
+      {activeTab === "cart" && (
+        <>
+          <PageHeader
+            title="سلة الحجز"
+            description="راجع القطع، أضف عنوان التوصيل، ثم أكّد الحجز في خطوة واحدة."
+            actions={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab("catalog")}
+              >
+                <Store size={15} />
+                متابعة التصفّح
+              </Button>
+            }
+          />
+
+          {cart.length === 0 ? (
+            <EmptyState
+              icon={ShoppingBag}
+              title="سلتك فارغة"
+              body="تصفّح الكاتالوج وأضف القطع التي تحتاجها، ثم أكّد الحجز مرة واحدة."
+              action={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setActiveTab("catalog")}
+                >
+                  تصفّح الكاتالوج
+                </Button>
+              }
+            />
+          ) : (
+            <form
+              onSubmit={handleBulkSubmit}
+              className="grid gap-4 lg:grid-cols-[1.5fr_1fr] lg:items-start"
+            >
+              <div className="flex flex-col gap-4">
+                <Surface flush title={`${cart.length} قطعة في السلة`}>
+                  <DataTable minWidth="26rem">
+                    <THead>
+                      <TR>
+                        <TH>القطعة</TH>
+                        <TH>الحالة</TH>
+                        <TH justify="end">إزالة</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {cart.map((item) => (
+                        <TR key={item.id}>
+                          <TD>
+                            <CellStack
+                              media={
+                                <Image
+                                  src={
+                                    item.image_url || "/placeholder-item.svg"
+                                  }
+                                  alt=""
+                                  width={36}
+                                  height={36}
+                                  className="h-9 w-9 shrink-0 rounded-md object-cover ring-1 ring-sand-200"
+                                />
+                              }
+                              primary={item.title}
+                              secondary={item.category}
+                            />
+                          </TD>
+                          <TD>
+                            {item.condition ? (
+                              <Badge variant="gold">{item.condition}</Badge>
+                            ) : (
+                              <span className="text-ink-700/60">—</span>
+                            )}
+                          </TD>
+                          <TD justify="end">
+                            <IconButton
+                              tone="danger"
+                              aria-label={`أزل ${item.title}`}
+                              onClick={() => handleRemoveFromCart(item.id)}
+                            >
+                              <Trash2 size={15} />
+                            </IconButton>
+                          </TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </DataTable>
+                </Surface>
+
+                <Surface
+                  title="عنوان التوصيل"
+                  description="يظهر للمتطوّع المكلّف فقط، ولحظة تنفيذ المهمة فقط."
+                >
+                  <div className="flex flex-col gap-4">
+                    <Input
+                      type="tel"
+                      dir="ltr"
+                      icon={<Phone size={16} />}
+                      label="رقم التواصل"
+                      required
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      placeholder="0933123456"
+                    />
+
+                    <Field label="موقع التوصيل على الخريطة">
+                      <div className="overflow-hidden rounded-xl ring-1 ring-sand-200">
+                        <MapPicker
+                          onLocationSelect={(lat, lng) =>
+                            setDeliveryLocation(
+                              `إحداثيات: ${lat.toFixed(4)}, ${lng.toFixed(4)}`
+                            )
+                          }
+                        />
+                      </div>
+                    </Field>
+
+                    <Textarea
+                      label="العنوان بالتفصيل"
+                      required
+                      rows={2}
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      placeholder="المدينة، الحي، الشارع، رقم البناء…"
+                    />
+                  </div>
+                </Surface>
+              </div>
+
+              {/* Summary */}
+              <Surface title="ملخّص الحجز" className="lg:sticky lg:top-20">
+                <dl className="flex flex-col gap-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <dt className="text-ink-700/75">عدد القطع</dt>
+                    <dd className="font-bold tabular-nums text-ink-900">
+                      {cart.length}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-ink-700/75">التكلفة</dt>
+                    <dd className="font-bold text-brand-700">مجاناً</dd>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-sand-200 pt-3">
+                    <dt className="text-ink-700/75">الخطوة التالية</dt>
+                    <dd className="text-xs font-semibold text-ink-900">
+                      تعيين متطوّع
+                    </dd>
+                  </div>
+                </dl>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  full
+                  className="mt-5"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting
+                    ? "جاري التأكيد…"
+                    : `أكّد حجز ${cart.length} قطعة`}
+                </Button>
+
+                <p className="mt-3 text-xs text-ink-700/60">
+                  بعد التأكيد تنتقل القطع إلى «قيد التوصيل» ويعيّن الفريق
+                  متطوّعاً قريباً منك.
+                </p>
+              </Surface>
+            </form>
+          )}
+        </>
+      )}
+
+      {/* ==================== My needs ==================== */}
       {activeTab === "my-needs" && (
-        <div className="bg-white rounded-3xl border border-slate-200/80 p-6 md:p-8 shadow-sm animate-in fade-in">
-          <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <HeartHandshake className="text-emerald-600" /> سجل طلباتي المرفوعة
-          </h2>
-          <div className="space-y-4">
-            {needs.filter((n) => n.beneficiary_id === profile?.id).length === 0 ? (
-               <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-500 text-sm font-medium">
-                 لم تقم برفع أي طلبات احتياج بعد.
-               </div>
-            ) : (
-              needs.filter((n) => n.beneficiary_id === profile?.id).map((n) => (
-                <div key={n.id} className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-white transition-colors shadow-sm">
-                  <div>
-                    <p className="font-bold text-slate-900 text-lg">{n.title}</p>
-                    <div className="flex flex-wrap items-center gap-3 mt-2">
-                      <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-md border border-slate-200">
-                        الفئة: {n.category} ({n.sub_category})
-                      </span>
-                      <span className="text-xs text-amber-700 font-bold bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
-                        أولوية: {n.urgency}
-                      </span>
-                      <span className="text-xs text-blue-700 font-bold bg-blue-50 px-2 py-1 rounded-md border border-blue-100">
-                        الكمية المطلوبة: {n.quantity || 1}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-600 mt-3 line-clamp-2" title={n.description}>{n.description}</p>
-                  </div>
-                  <div className="shrink-0">
-                    <span className={`px-4 py-2 rounded-xl text-xs font-bold border ${n.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-slate-200 text-slate-700 border-slate-300'}`}>
-                      حالة الطلب: {n.status === 'completed' ? 'مكتمل/مُلبى' : n.status}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <>
+          <PageHeader
+            title="سجل الطلبات"
+            description="الطلبات التي قدّمتها ومرحلة كل منها."
+            actions={
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsAddNeedModalOpen(true)}
+              >
+                <Plus size={15} />
+                طلب جديد
+              </Button>
+            }
+          />
+
+          <Surface flush>
+            <Toolbar>
+              <span className="text-xs text-ink-700/60">
+                {myNeeds.length} طلب مسجّل باسمك
+              </span>
+            </Toolbar>
+
+            <DataTable minWidth="50rem">
+              <THead>
+                <TR>
+                  <TH>الطلب</TH>
+                  <TH>الفئة</TH>
+                  <TH>الأولوية</TH>
+                  <TH>المتبقّي</TH>
+                  <TH justify="end">المرحلة</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {myNeeds.length === 0 ? (
+                  <TableEmpty
+                    colSpan={5}
+                    icon={HeartHandshake}
+                    title="لم تقدّم طلبات بعد"
+                    body="قدّم طلب احتياج يحدّد الفئة والكمية والأولوية، وسنطابقه تلقائياً مع أقرب تبرّع مناسب."
+                    action={
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setIsAddNeedModalOpen(true)}
+                      >
+                        قدّم طلبك الأول
+                      </Button>
+                    }
+                  />
+                ) : (
+                  myNeeds.map((need) => (
+                    <TR key={need.id}>
+                      <TD>
+                        <CellStack
+                          primary={need.title}
+                          secondary={need.description}
+                        />
+                      </TD>
+                      <TD className="text-ink-700/80">
+                        {need.category}
+                        {need.sub_category ? ` — ${need.sub_category}` : ""}
+                      </TD>
+                      <TD>
+                        <UrgencyBadge urgency={need.urgency} />
+                      </TD>
+                      <TD className="font-semibold tabular-nums">
+                        <span className="flex items-center gap-1">
+                          <Hash size={11} className="text-ink-700/55" />
+                          {need.quantity ?? 0}
+                        </span>
+                      </TD>
+                      <TD justify="end">
+                        <StatusBadge status={need.status} />
+                      </TD>
+                    </TR>
+                  ))
+                )}
+              </TBody>
+            </DataTable>
+          </Surface>
+        </>
       )}
     </>
   );

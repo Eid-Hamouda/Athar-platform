@@ -1,83 +1,183 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import { Heart, LogOut, LayoutDashboard } from "lucide-react";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
+import { LayoutDashboard, LogOut, Menu, X, HeartHandshake } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useRouter, usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Logo } from "@/components/ui/Logo";
+import { ButtonLink, buttonClass } from "@/components/ui/Button";
+
+const links = [
+  { href: "/", label: "الرئيسية" },
+  { href: "/how-it-works", label: "كيف تعمل" },
+  { href: "/catalog", label: "المعروضات" },
+  { href: "/about", label: "من نحن" },
+  { href: "/faq", label: "الأسئلة" },
+];
 
 export function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = React.useState<Session | null>(null);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
+  // Remember which route the sheet was opened on, so navigating away closes it
+  // without needing an effect that reacts to the pathname.
+  const [openedOn, setOpenedOn] = React.useState<string | null>(null);
+  const open = openedOn !== null && openedOn === pathname;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
 
     return () => subscription.unsubscribe();
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/auth"); // Redirects to login page upon sign out
+    router.push("/auth/login");
     router.refresh();
   };
 
-  // Completely hide the Navbar on any dashboard route
-  if (pathname?.startsWith("/dashboard")) {
+  // The dashboard and the auth split screen own their full viewport.
+  if (pathname?.startsWith("/dashboard") || pathname?.startsWith("/auth"))
     return null;
-  }
+
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname?.startsWith(href);
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs">
-      <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img src="/logo.png" alt="شعار أثر" className="w-50 h-50 object-contain" />
+    <header className="sticky top-0 z-50 pt-4 pb-2">
+      <div className="mx-auto w-full max-w-7xl px-5 sm:px-8">
+        <div className="glass flex items-center justify-between gap-3 rounded-full p-2 shadow-lg ring-1 ring-white/50">
+          <Link
+            href="/"
+            className="shrink-0 rounded-full ps-2"
+            aria-label="أثر — الصفحة الرئيسية"
+          >
+            <Logo />
+          </Link>
+
+          {/* ---------------- Desktop nav ---------------- */}
+          <nav className="hidden items-center gap-1 lg:flex">
+            {links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "rounded-full px-4 py-2.5 text-sm font-semibold transition-colors",
+                  isActive(link.href)
+                    ? "bg-ink-900 text-sand-50"
+                    : "text-ink-800 hover:bg-white/70 hover:text-brand-700"
+                )}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          {/* ---------------- Desktop actions ---------------- */}
+          <div className="hidden items-center gap-2 lg:flex">
+            {session ? (
+              <>
+                <Link
+                  href="/dashboard"
+                  className={buttonClass({ variant: "outline", size: "md" })}
+                >
+                  <LayoutDashboard size={16} />
+                  لوحتي
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  aria-label="تسجيل الخروج"
+                  className="flex h-11 w-11 items-center justify-center rounded-full text-ink-700 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                >
+                  <LogOut size={17} />
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/auth/login"
+                  className="rounded-full px-4 py-2.5 text-sm font-semibold text-ink-800 transition-colors hover:text-brand-700"
+                >
+                  الدخول
+                </Link>
+                <ButtonLink href="/auth/register" variant="primary">
+                  <HeartHandshake size={16} />
+                  تبرّع الآن
+                </ButtonLink>
+              </>
+            )}
+          </div>
+
+          {/* ---------------- Mobile trigger ---------------- */}
+          <button
+            type="button"
+            onClick={() => setOpenedOn(open ? null : (pathname ?? "/"))}
+            aria-expanded={open}
+            aria-label="القائمة"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-900 text-sand-50 transition-colors hover:bg-ink-800 lg:hidden"
+          >
+            {open ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
 
-        <nav className="hidden lg:flex items-center gap-8 text-sm font-medium text-slate-600">
-          <Link href="/" className="hover:text-emerald-600 transition-colors">الرئيسية</Link>
-          <Link href="/about" className="hover:text-emerald-600 transition-colors">من نحن</Link>
-          <Link href="/how-it-works" className="hover:text-emerald-600 transition-colors">كيف تعمل المنصة</Link>
-          <Link href="/policy" className="hover:text-emerald-600 transition-colors">السياسة</Link>
-          {session && (
-            <Link href="/dashboard" className="text-emerald-600 font-bold hover:text-emerald-700 transition-colors flex items-center gap-1.5">
-              <LayoutDashboard size={16} /> لوحة التحكم
-            </Link>
-          )}
-        </nav>
+        {/* ---------------- Mobile sheet ---------------- */}
+        {open && (
+          <div className="glass mt-2 animate-pop rounded-3xl p-3 shadow-xl ring-1 ring-white/50 lg:hidden">
+            <nav className="flex flex-col gap-1">
+              {links.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={cn(
+                    "rounded-2xl px-4 py-3.5 text-sm font-semibold transition-colors",
+                    isActive(link.href)
+                      ? "bg-ink-900 text-sand-50"
+                      : "text-ink-800 hover:bg-white/70"
+                  )}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
 
-        <div className="flex items-center gap-4">
-          {session ? (
-            <button 
-              onClick={handleLogout}
-              className="flex items-center gap-2 text-sm font-medium text-red-600 hover:text-red-700 px-4 py-2 rounded-xl bg-red-50 transition-colors"
-            >
-              <LogOut size={16} /> تسجيل الخروج
-            </button>
-          ) : (
-            <>
-              <Link 
-                href="/auth/login" 
-                className="text-sm font-medium text-slate-700 hover:text-emerald-600 px-3 py-2"
-              >
-                تسجيل الدخول
-              </Link>
-              <Link 
-                href="/auth/register" 
-                className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm"
-              >
-                تبرع الآن
-              </Link>
-            </>
-          )}
-        </div>
+            <div className="mt-3 flex flex-col gap-2 border-t border-white/60 pt-3">
+              {session ? (
+                <>
+                  <ButtonLink href="/dashboard" variant="dark" full>
+                    <LayoutDashboard size={16} />
+                    لوحة التحكم
+                  </ButtonLink>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-full px-4 py-3 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-50"
+                  >
+                    تسجيل الخروج
+                  </button>
+                </>
+              ) : (
+                <>
+                  <ButtonLink href="/auth/login" variant="outline" full>
+                    تسجيل الدخول
+                  </ButtonLink>
+                  <ButtonLink href="/auth/register" variant="primary" full>
+                    <HeartHandshake size={16} />
+                    تبرّع الآن
+                  </ButtonLink>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </header>
   );

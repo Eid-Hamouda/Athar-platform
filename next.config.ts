@@ -1,9 +1,20 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    // Donation photos are served from Supabase Storage public buckets.
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "*.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb', // Increase the limit to 10MB
+      // Donation photos are posted straight to the vision action.
+      bodySizeLimit: "10mb",
     },
   },
 };
