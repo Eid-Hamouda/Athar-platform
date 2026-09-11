@@ -7,6 +7,7 @@ import type { Session } from "@supabase/supabase-js";
 import { LayoutDashboard, LogOut, Menu, X, HeartHandshake } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { useExpressAuth } from "@/lib/auth-context";
 import { Logo } from "@/components/ui/Logo";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 
@@ -22,6 +23,8 @@ export function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [session, setSession] = React.useState<Session | null>(null);
+  const { user: expressUser, logout: expressLogout } = useExpressAuth();
+  const isAuthenticated = Boolean(session) || Boolean(expressUser);
 
   // Remember which route the sheet was opened on, so navigating away closes it
   // without needing an effect that reacts to the pathname.
@@ -39,7 +42,7 @@ export function Navbar() {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await Promise.all([supabase.auth.signOut(), expressLogout()]);
     router.push("/auth/login");
     router.refresh();
   };
@@ -83,7 +86,7 @@ export function Navbar() {
 
           {/* ---------------- Desktop actions ---------------- */}
           <div className="hidden items-center gap-2 lg:flex">
-            {session ? (
+            {isAuthenticated ? (
               <>
                 <Link
                   href="/dashboard"
@@ -150,7 +153,7 @@ export function Navbar() {
             </nav>
 
             <div className="mt-3 flex flex-col gap-2 border-t border-white/60 pt-3">
-              {session ? (
+              {isAuthenticated ? (
                 <>
                   <ButtonLink href="/dashboard" variant="dark" full>
                     <LayoutDashboard size={16} />

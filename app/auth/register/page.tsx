@@ -16,6 +16,8 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { useExpressAuth } from "@/lib/auth-context";
+import { getApiErrorMessage } from "@/lib/api";
 import { AuthShell } from "@/components/ui/AuthShell";
 import { Input, Field } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -50,8 +52,19 @@ const roles = [
 
 type RoleId = (typeof roles)[number]["id"];
 
+// donor/volunteer/organization register against the real Athar (Express)
+// backend, which has no "organization" role — it calls that role "charity".
+// beneficiary has no backend equivalent yet and keeps the existing Supabase
+// path (see ATHAR_FRONTEND_BACKEND_INTEGRATION_PROMPT.md decisions).
+const EXPRESS_ROLE: Partial<Record<RoleId, "donor" | "volunteer" | "charity">> = {
+  donor: "donor",
+  volunteer: "volunteer",
+  organization: "charity",
+};
+
 export default function RegisterPage() {
   const router = useRouter();
+  const { register: expressRegister } = useExpressAuth();
   const [reveal, setReveal] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [form, setForm] = React.useState({
@@ -61,14 +74,38 @@ export default function RegisterPage() {
     role: "donor" as RoleId,
   });
 
-  const needsApproval =
-    form.role === "beneficiary" || form.role === "organization";
+  // Only beneficiary accounts go through Supabase's manual-approval gate;
+  // donor/volunteer/organization accounts on the real backend get immediate
+  // access (no isApproved concept there), so we no longer claim otherwise.
+  const needsApproval = form.role === "beneficiary";
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     const toastId = toast.loading("جاري إنشاء الحساب…");
 
+    const expressRole = EXPRESS_ROLE[form.role];
+    if (expressRole) {
+      try {
+        await expressRegister({
+          fullName: form.fullName,
+          email: form.email,
+          password: form.password,
+          role: expressRole,
+        });
+        toast.success("أُنشئ حسابك بنجاح. أهلاً بك في أثر.", { id: toastId });
+        router.push("/dashboard");
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, "تعذّر إنشاء الحساب. حاول مرة أخرى."), {
+          id: toastId,
+        });
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // beneficiary — unchanged Supabase path.
     try {
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
@@ -172,8 +209,8 @@ export default function RegisterPage() {
 
         {needsApproval && (
           <Alert tone="info" icon={Info}>
-            حسابات المستفيدين والجمعيات تمرّ بتدقيق يدوي قبل تفعيل تقديم الطلبات،
-            ويستغرق ذلك عادةً أقل من 48 ساعة عمل.
+            حسابات المستفيدين تمرّ بتدقيق يدوي قبل تفعيل تقديم الطلبات، ويستغرق
+            ذلك عادةً أقل من 48 ساعة عمل.
           </Alert>
         )}
 
@@ -203,9 +240,13 @@ export default function RegisterPage() {
           id="register-password"
           type={reveal ? "text" : "password"}
           label="كلمة المرور"
-          hint="ستة أحرف على الأقل"
+          hint={
+            EXPRESS_ROLE[form.role]
+              ? "8 أحرف على الأقل، مع حرف كبير وحرف صغير ورقم"
+              : "ستة أحرف على الأقل"
+          }
           required
-          minLength={6}
+          minLength={EXPRESS_ROLE[form.role] ? 8 : 6}
           autoComplete="new-password"
           dir="ltr"
           placeholder="••••••••"

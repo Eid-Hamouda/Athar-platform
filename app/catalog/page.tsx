@@ -16,6 +16,8 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import { cn, stripCoordinatesPrefix } from "@/lib/utils";
+import { donationService } from "@/services/donation.service";
+import type { ExpressDonation } from "@/types/api";
 import { Container, Section } from "@/components/ui/Section";
 import { Badge, StatusBadge, UrgencyBadge } from "@/components/ui/Badge";
 import { ItemCard } from "@/components/ui/ItemCard";
@@ -52,6 +54,29 @@ interface CatalogNeed {
 
 const ALL = "الكل";
 
+function expressLocationLabel(location: ExpressDonation["location"]) {
+  if (typeof location === "string" || !location) return "الموقع غير محدد";
+  return [location.city, location.area].filter(Boolean).join(" - ") || "الموقع غير محدد";
+}
+
+function expressCategoryLabel(category: ExpressDonation["category"]) {
+  if (typeof category === "string" || !category) return "غير مصنّف";
+  return category.nameAr || category.name;
+}
+
+function toCatalogDonation(donation: ExpressDonation): CatalogDonation {
+  return {
+    id: donation._id,
+    title: donation.title,
+    category: expressCategoryLabel(donation.category),
+    condition: donation.condition === "new" ? "جديدة" : "مستعملة",
+    description: donation.description || "لا يوجد وصف إضافي لهذه القطعة.",
+    location: expressLocationLabel(donation.location),
+    imageUrl: donation.images[0]?.url,
+    status: donation.status,
+  };
+}
+
 /** Categories come from free text and the classifier, so match loosely. */
 function matchesCategory(value: string | undefined, filter: string) {
   if (filter === ALL) return true;
@@ -72,11 +97,9 @@ export default function CatalogPage() {
 
     const load = async () => {
       const [donationsResult, needsResult] = await Promise.all([
-        supabase
-          .from("donations")
-          .select("*")
-          .eq("status", "available")
-          .order("created_at", { ascending: false }),
+        donationService
+          .list({ status: "available", limit: 60 })
+          .catch(() => null),
         supabase
           .from("needs")
           .select("*")
@@ -86,23 +109,11 @@ export default function CatalogPage() {
 
       if (!active) return;
 
-      if (donationsResult.error || needsResult.error) {
+      if (!donationsResult || needsResult.error) {
         toast.error("تعذّر جلب البيانات من الخادم. حاول تحديث الصفحة.");
       }
 
-      setDonations(
-        (donationsResult.data ?? []).map((d) => ({
-          id: d.id,
-          title: d.title,
-          category: d.category,
-          subCategory: d.sub_category ?? undefined,
-          condition: d.condition ?? undefined,
-          description: d.description || "لا يوجد وصف إضافي لهذه القطعة.",
-          location: stripCoordinatesPrefix(d.location) || "الموقع غير محدد",
-          imageUrl: d.image_url ?? undefined,
-          status: d.status,
-        }))
-      );
+      setDonations((donationsResult?.donations ?? []).map(toCatalogDonation));
 
       setNeeds(
         (needsResult.data ?? []).map((n) => ({

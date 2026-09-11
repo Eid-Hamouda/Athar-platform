@@ -25,6 +25,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { useExpressAuth, toLegacyProfile } from "@/lib/auth-context";
 import type { UserProfile, DonationItem, NeedRequest } from "@/types";
 import AdminView from "@/components/dashboard/AdminView";
 import BeneficiaryView from "@/components/dashboard/BeneficiaryView";
@@ -126,6 +127,11 @@ NAV.organization = NAV.beneficiary;
 
 export default function DashboardPage() {
   const router = useRouter();
+  const {
+    user: expressUser,
+    loading: expressLoading,
+    logout: expressLogout,
+  } = useExpressAuth();
 
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = React.useState("overview");
@@ -194,17 +200,36 @@ export default function DashboardPage() {
 
   /* ---------------- Bootstrap ---------------- */
   React.useEffect(() => {
-    const fetchData = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) return router.push("/auth/login");
+    // Wait for the Express session check (lib/auth-context.tsx) to settle
+    // before falling back to Supabase, otherwise a donor/volunteer/
+    // organization/admin account authenticated via the real backend would
+    // get bounced to /auth/login because it has no Supabase session.
+    if (expressLoading) return;
 
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", session.user.id)
-        .single();
+    const fetchData = async () => {
+      let profileData: UserProfile | null = null;
+
+      if (expressUser) {
+        // Real backend account (donor/volunteer/organization/admin). The
+        // dashboard's donation/need management tabs are still Supabase-only
+        // (out of the current integration scope — see
+        // ATHAR_FRONTEND_BACKEND_INTEGRATION_PROMPT.md), so this account
+        // simply won't have entries there yet.
+        profileData = toLegacyProfile(expressUser);
+      } else {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) return router.push("/auth/login");
+
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+        profileData = data;
+      }
+
       setProfile(profileData);
 
       if (profileData?.role === "volunteer") setActiveTab("volunteer-tasks");
@@ -236,10 +261,10 @@ export default function DashboardPage() {
     };
 
     fetchData();
-  }, [router]);
+  }, [router, expressUser, expressLoading]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await Promise.all([supabase.auth.signOut(), expressLogout()]);
     router.push("/auth/login");
   };
 

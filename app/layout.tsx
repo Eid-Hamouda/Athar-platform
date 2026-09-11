@@ -6,6 +6,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { HideOnRoutes } from "@/components/layout/RouteChrome";
 import { ToastHost } from "@/components/ui/ToastHost";
+import { ExpressAuthProvider } from "@/lib/auth-context";
 
 // Display face: geometric, high-contrast Arabic for headlines.
 const display = Rubik({
@@ -62,12 +63,14 @@ export default function RootLayout({
       <body
         className={`${display.variable} ${body.variable} font-sans bg-sand-50 text-ink-800 min-h-screen overflow-x-clip`}
       >
-        <ToastHost />
-        <Navbar />
-        <main>{children}</main>
-        <HideOnRoutes prefixes={["/auth", "/dashboard"]}>
-          <Footer />
-        </HideOnRoutes>
+        <ExpressAuthProvider>
+          <ToastHost />
+          <Navbar />
+          <main>{children}</main>
+          <HideOnRoutes prefixes={["/auth", "/dashboard"]}>
+            <Footer />
+          </HideOnRoutes>
+        </ExpressAuthProvider>
       </body>
     </html>
   );

@@ -6,12 +6,14 @@ import toast from "react-hot-toast";
 import { Eye, EyeOff, LogIn } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { useExpressAuth } from "@/lib/auth-context";
 import { AuthShell } from "@/components/ui/AuthShell";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login: expressLogin } = useExpressAuth();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [reveal, setReveal] = React.useState(false);
@@ -21,6 +23,20 @@ export default function LoginPage() {
     e.preventDefault();
     setIsLoading(true);
     const toastId = toast.loading("جاري تسجيل الدخول…");
+
+    // Donor/volunteer/organization/admin accounts live on the real Athar
+    // backend; beneficiary accounts still live on Supabase (see
+    // ATHAR_FRONTEND_BACKEND_INTEGRATION_PROMPT.md). The login form has no
+    // role picker, so we try the real backend first and fall back to
+    // Supabase — each store only recognizes its own users, so this is safe.
+    try {
+      await expressLogin({ email, password });
+      toast.success("أهلاً بك مجدداً.", { id: toastId });
+      router.push("/dashboard");
+      return;
+    } catch {
+      // Not an Express account (or backend unreachable) — try Supabase next.
+    }
 
     try {
       const { error } = await supabase.auth.signInWithPassword({

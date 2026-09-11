@@ -2,12 +2,18 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
-    // Donation photos are served from Supabase Storage public buckets.
     remotePatterns: [
+      // Beneficiary/needs donation photos — Supabase Storage public buckets.
       {
         protocol: "https",
         hostname: "*.supabase.co",
         pathname: "/storage/v1/object/public/**",
+      },
+      // Donation photos from the Athar Express backend — uploaded to Cloudinary
+      // (backend/src/config/cloudinary.ts).
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
       },
     ],
   },
