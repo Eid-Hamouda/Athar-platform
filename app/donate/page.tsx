@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compressImage";
 import { analyzeItemAction } from "@/app/actions/aiActions";
 import MapPicker from "@/components/MapPicker";
 import { Container, Section } from "@/components/ui/Section";
@@ -141,14 +142,16 @@ export default function DonatePage() {
         return;
       }
 
-      const extension = file.name.split(".").pop() ?? "jpg";
+      // Shrunk client-side so next/image can refetch it inside its 7s budget.
+      const upload = await compressImage(file);
+      const extension = upload.name.split(".").pop() ?? "jpg";
       const fileName = `donation_${Date.now()}_${Math.random()
         .toString(36)
         .slice(2)}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("donations-images")
-        .upload(fileName, file);
+        .upload(fileName, upload, { contentType: upload.type });
       if (uploadError) throw uploadError;
 
       const { data: publicUrl } = supabase.storage

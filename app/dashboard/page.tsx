@@ -24,6 +24,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { compressImage } from "@/lib/compressImage";
 import { cn } from "@/lib/utils";
 import type { UserProfile, DonationItem, NeedRequest } from "@/types";
 import AdminView from "@/components/dashboard/AdminView";
@@ -318,14 +319,16 @@ export default function DashboardPage() {
     const toastId = toast.loading("جاري الرفع…");
 
     try {
-      const extension = itemFile.name.split(".").pop() ?? "jpg";
+      // Shrunk client-side so next/image can refetch it inside its 7s budget.
+      const upload = await compressImage(itemFile);
+      const extension = upload.name.split(".").pop() ?? "jpg";
       const fileName = `admin_${Date.now()}_${Math.random()
         .toString(36)
         .slice(2)}.${extension}`;
 
       await supabase.storage
         .from("donations-images")
-        .upload(fileName, itemFile);
+        .upload(fileName, upload, { contentType: upload.type });
       const { data } = supabase.storage
         .from("donations-images")
         .getPublicUrl(fileName);
@@ -465,14 +468,16 @@ export default function DashboardPage() {
     const toastId = toast.loading("جاري رفع التبرع…");
 
     try {
-      const extension = donorFile.name.split(".").pop() ?? "jpg";
+      // Shrunk client-side so next/image can refetch it inside its 7s budget.
+      const upload = await compressImage(donorFile);
+      const extension = upload.name.split(".").pop() ?? "jpg";
       const fileName = `donation_${Date.now()}_${Math.random()
         .toString(36)
         .slice(2)}.${extension}`;
 
       await supabase.storage
         .from("donations-images")
-        .upload(fileName, donorFile);
+        .upload(fileName, upload, { contentType: upload.type });
       const { data: publicUrl } = supabase.storage
         .from("donations-images")
         .getPublicUrl(fileName);
