@@ -13,6 +13,7 @@ import {
   History,
 } from "lucide-react";
 
+import type { DeliverableDonation } from "@/types";
 import { formatWhatsAppNumber, stripCoordinatesPrefix } from "@/lib/utils";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -38,7 +39,7 @@ import { StatCard } from "@/components/dashboard/ui/Stat";
 interface VolunteerViewProps {
   activeTab: string;
   /** Rows carry delivery fields that aren't on the base DonationItem type. */
-  donations: any[];
+  donations: DeliverableDonation[];
   handleCompleteDelivery: (donationId: string) => void;
 }
 

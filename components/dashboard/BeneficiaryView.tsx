@@ -18,7 +18,12 @@ import {
   Store,
 } from "lucide-react";
 
-import type { UserProfile, DonationItem, NeedRequest } from "@/types";
+import type {
+  UserProfile,
+  DonationItem,
+  NeedRequest,
+  NewNeedForm,
+} from "@/types";
 import { stripCoordinatesPrefix } from "@/lib/utils";
 import MapPicker from "@/components/MapPicker";
 import { Modal } from "@/components/ui/Modal";
@@ -52,8 +57,8 @@ interface BeneficiaryViewProps {
   donations: DonationItem[];
   needs: NeedRequest[];
   cart: DonationItem[];
-  newNeed: any;
-  setNewNeed: (need: any) => void;
+  newNeed: NewNeedForm;
+  setNewNeed: React.Dispatch<React.SetStateAction<NewNeedForm>>;
   deliveryAddress: string;
   setDeliveryAddress: (address: string) => void;
   deliveryLocation: string;
@@ -239,8 +244,10 @@ export default function BeneficiaryView({
           )
           .slice(0, 3);
 
-  const setNeedField = (key: string, value: string | number) =>
-    setNewNeed({ ...newNeed, [key]: value });
+  const setNeedField = <K extends keyof NewNeedForm>(
+    key: K,
+    value: NewNeedForm[K]
+  ) => setNewNeed({ ...newNeed, [key]: value });
 
   return (
     <>

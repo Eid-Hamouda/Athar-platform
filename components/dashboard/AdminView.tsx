@@ -34,7 +34,13 @@ import {
   Inbox,
 } from "lucide-react";
 
-import type { UserProfile, NeedRequest } from "@/types";
+import type {
+  UserProfile,
+  NeedRequest,
+  DeliverableDonation,
+  NewUserForm,
+  NewItemForm,
+} from "@/types";
 import { analyzeItemAction } from "@/app/actions/aiActions";
 import { cn, formatWhatsAppNumber, stripCoordinatesPrefix } from "@/lib/utils";
 import MapPicker from "@/components/MapPicker";
@@ -104,13 +110,13 @@ interface AdminViewProps {
   activeTab: string;
   allUsers: UserProfile[];
   /** Rows carry delivery fields that aren't on the base DonationItem type. */
-  donations: any[];
+  donations: DeliverableDonation[];
   needs: NeedRequest[];
   pendingBeneficiaries: UserProfile[];
-  newUser: any;
-  setNewUser: (user: any) => void;
-  newItem: any;
-  setNewItem: (item: any) => void;
+  newUser: NewUserForm;
+  setNewUser: React.Dispatch<React.SetStateAction<NewUserForm>>;
+  newItem: NewItemForm;
+  setNewItem: React.Dispatch<React.SetStateAction<NewItemForm>>;
   itemFile: File | null;
   setItemFile: (file: File | null) => void;
   handleAdminCreateUser: (e: React.FormEvent) => void;

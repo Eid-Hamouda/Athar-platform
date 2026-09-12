@@ -10,6 +10,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Create and export the Supabase client
 export const supabase = createClient(
-  supabaseUrl || 'https:cgfdkqqlpgzninxbtubn.supabase.co', 
+  supabaseUrl || 'https://cgfdkqqlpgzninxbtubn.supabase.co', 
   supabaseAnonKey || 'sb_publishable_armYRRYrZCgXCwTdLsdFDg_0cZHy7lC'
 );

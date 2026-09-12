@@ -12,7 +12,7 @@ export interface AIAnalysisResult {
 export async function analyzeImageBuffer(base64Data: string, mimeType: string): Promise<AIAnalysisResult | null> {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.7-flash",
       contents: [
         {
           inlineData: {

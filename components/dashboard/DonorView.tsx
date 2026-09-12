@@ -17,7 +17,12 @@ import {
   Inbox,
 } from "lucide-react";
 
-import type { UserProfile, DonationItem, NeedRequest } from "@/types";
+import type {
+  UserProfile,
+  DonationItem,
+  NeedRequest,
+  DonorItemForm,
+} from "@/types";
 import { analyzeItemAction } from "@/app/actions/aiActions";
 import { stripCoordinatesPrefix } from "@/lib/utils";
 import MapPicker from "@/components/MapPicker";
@@ -47,8 +52,8 @@ interface DonorViewProps {
   profile: UserProfile | null;
   isAddDonationModalOpen: boolean;
   setIsAddDonationModalOpen: (v: boolean) => void;
-  donorFormData: any;
-  setDonorFormData: (data: any) => void;
+  donorFormData: DonorItemForm;
+  setDonorFormData: React.Dispatch<React.SetStateAction<DonorItemForm>>;
   donorFile: File | null;
   setDonorFile: (file: File | null) => void;
   handleDonorCreateItem: (e: React.FormEvent) => void;
@@ -122,7 +127,7 @@ export default function DonorView({
       const analysis = await analyzeItemAction(payload);
       if (!analysis) throw new Error("no-analysis");
 
-      setDonorFormData((prev: any) => ({
+      setDonorFormData((prev) => ({
         ...prev,
         // A targeted donation keeps the need's own title and category.
         title: prev.target_need_id
@@ -171,8 +176,10 @@ export default function DonorView({
     setDonorFormData({ ...donorFormData, target_need_id: null });
   };
 
-  const setField = (key: string, value: string) =>
-    setDonorFormData({ ...donorFormData, [key]: value });
+  const setField = <K extends keyof DonorItemForm>(
+    key: K,
+    value: DonorItemForm[K]
+  ) => setDonorFormData({ ...donorFormData, [key]: value });
 
   const locationField = (
     <Field
