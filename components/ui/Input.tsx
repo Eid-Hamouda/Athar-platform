@@ -121,6 +121,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       icon,
       trailing,
       id,
+      dir,
       density = "default",
       wrapperClassName,
       ...props
@@ -128,7 +129,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     ref
   ) => {
     const control = (
-      <div className="relative">
+      // The affixes are positioned with logical `start`/`end` utilities, so the
+      // wrapper must share the input's direction — otherwise an LTR field on an
+      // RTL page pins the icon opposite the padding and the text runs under it.
+      <div className="relative" dir={dir}>
         {icon && (
           <span
             className={cn(
@@ -142,6 +146,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           id={id}
+          dir={dir}
           className={cn(
             fieldClass(density),
             icon && leadingPad[density],
