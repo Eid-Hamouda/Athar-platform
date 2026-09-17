@@ -12,6 +12,20 @@
 
 /** Long-edge cap. Well above the largest width the catalog ever renders. */
 const MAX_EDGE = 1600;
+
+/**
+ * Long-edge cap for the copy sent to the vision model, which is a different
+ * job from the copy that gets stored.
+ *
+ * The stored image is sized for the catalogue; this one only has to be legible
+ * enough to classify a coat as a coat, and every byte of it is base64-encoded
+ * (+33%), posted to a Server Action and then posted again to the model inside
+ * a per-attempt timeout. A raw 4 MB phone photo routinely spent that whole
+ * budget on upload alone and came back as a timeout — the model never got far
+ * enough to fail on merit. 1024px is ample for classification and roughly a
+ * quarter of the bytes.
+ */
+export const ANALYSIS_MAX_EDGE = 1024;
 /** WebP quality — visually clean for photos at roughly a fifth of the bytes. */
 const QUALITY = 0.82;
 

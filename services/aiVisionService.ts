@@ -1,17 +1,27 @@
-import { Type } from "@google/genai";
+import { ThinkingLevel, Type } from "@google/genai";
 
-import { generateWithFallback } from "@/services/geminiClient";
+import { generateWithFallback, VISION_MODELS } from "@/services/geminiClient";
 import {
   analyzeImageWithFallbackProvider,
   isUsableArabic,
-} from "@/services/visionFallback";
+} from "@/services/fallbackProvider";
 
 /**
  * Image analysis runs while a donor watches an upload spinner, so it gets a
  * shorter leash than matching does: better to ask them to fill the fields in
  * by hand than to hold the form open indefinitely.
+ *
+ * Twenty-four seconds, which is a budget for three or four attempts rather
+ * than the one-and-a-bit that twenty used to buy. The arithmetic changed with
+ * the model order and the thinking level: a healthy attempt is now ~3.6s, and
+ * the expensive case is a 503, which costs 5-12s to be told no. Even a run
+ * that refuses twice before landing finishes well inside this.
+ *
+ * The spinner only runs near the ceiling on a bad day. Once a congested model
+ * is cooling down the next donor skips it outright and sees an answer in about
+ * four seconds.
  */
-const ANALYSIS_TIMEOUT_MS = 20_000;
+const ANALYSIS_TIMEOUT_MS = 24_000;
 
 export interface AIAnalysisResult {
   category: string;
@@ -51,6 +61,7 @@ export async function analyzeImageBuffer(base64Data: string, mimeType: string): 
     const response = await generateWithFallback({
       label: "Image analysis",
       timeoutMs: ANALYSIS_TIMEOUT_MS,
+      models: VISION_MODELS,
       contents: [
         {
           inlineData: {
@@ -63,6 +74,20 @@ export async function analyzeImageBuffer(base64Data: string, mimeType: string): 
         }
       ],
       config: {
+        // Reasoning is the single largest cost on this call and buys nothing
+        // here. Left at its default the model spent 992 thought tokens working
+        // out that a photo of schoolbooks was schoolbooks, taking 7.9s; capped,
+        // it returns the same verdict and an equally concrete description with
+        // no thought tokens at all, in 3.6-5.6s. Those tokens are generation on
+        // a metered tier, so this is cheaper as well as faster.
+        //
+        // LOW rather than MINIMAL, which is the cheaper setting and measurably
+        // no cheaper here — both report zero thought tokens, and the gap
+        // between them is run-to-run noise. MINIMAL is rejected outright by
+        // gemini-3.7-flash ("Thinking level MINIMAL is not supported for this
+        // model", 400), so it would quietly cost a model from the walk to buy
+        // nothing. LOW is accepted by all six.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
