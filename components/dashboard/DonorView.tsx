@@ -24,7 +24,13 @@ import type {
   DonorItemForm,
 } from "@/types";
 import { analyzeItemAction } from "@/app/actions/aiActions";
+import {
+  findNeedsForDonationAction,
+  type NeedSuggestion,
+} from "@/app/actions/matchingActions";
+import { supabase } from "@/lib/supabase";
 import { stripCoordinatesPrefix } from "@/lib/utils";
+import { distanceBetween, formatDistanceAr } from "@/lib/geo";
 import MapPicker from "@/components/MapPicker";
 import { Modal } from "@/components/ui/Modal";
 import { IconTile } from "@/components/ui/Card";
@@ -100,6 +106,9 @@ export default function DonorView({
 }: DonorViewProps) {
   const [isAnalyzing, setIsAnalyzing] = React.useState(false);
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all");
+  const [needSuggestions, setNeedSuggestions] = React.useState<
+    NeedSuggestion[]
+  >([]);
 
   const mine = donations.filter((d) => d.donor_id === profile?.id);
   const visible = mine.filter(
@@ -114,9 +123,40 @@ export default function DonorView({
     : null;
 
   /* ---------------- AI classification ---------------- */
+  /**
+   * Once the item has been described, ask which open needs it would satisfy.
+   * Best-effort and non-blocking: the donor can publish to the catalogue as
+   * usual whether or not this returns anything.
+   */
+  const suggestNeedsFor = async (item: {
+    title: string;
+    category: string;
+    sub_category: string;
+    condition: string;
+    description: string;
+  }) => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const suggestions = await findNeedsForDonationAction(
+        session.access_token,
+        { ...item, location: donorFormData.location }
+      );
+      setNeedSuggestions(suggestions);
+    } catch {
+      setNeedSuggestions([]);
+    }
+  };
+
   const handleImage = async (file: File | null) => {
     setDonorFile(file);
-    if (!file) return;
+    if (!file) {
+      setNeedSuggestions([]);
+      return;
+    }
 
     setIsAnalyzing(true);
     const toastId = toast.loading("الذكاء الاصطناعي يقرأ الصورة…");
@@ -140,6 +180,14 @@ export default function DonorView({
           ? prev.sub_category
           : analysis.sub_category || prev.sub_category,
         condition: analysis.condition || prev.condition,
+        // Unlike the fields above, anything the donor has already written is
+        // kept. A title or a category is a label the model can restate, but a
+        // description is authored text — silently replacing it when someone
+        // swaps the photo would throw away work they cannot get back.
+        description:
+          prev.description.trim().length > 0
+            ? prev.description
+            : analysis.suggested_description || prev.description,
       }));
 
       toast.success(
@@ -148,6 +196,23 @@ export default function DonorView({
           : `تم التصنيف: ${analysis.category} — ${analysis.sub_category}`,
         { id: toastId }
       );
+
+      // Pointless while already fulfilling a specific need.
+      if (!donorFormData.target_need_id) {
+        void suggestNeedsFor({
+          title: analysis.suggested_title || donorFormData.title,
+          category: analysis.category || donorFormData.category,
+          sub_category: analysis.sub_category || donorFormData.sub_category,
+          condition: analysis.condition || donorFormData.condition,
+          // Mirrors the rule applied to the form above. The generated text is
+          // the richest signal the matcher gets, so passing the stale empty
+          // value here would hand it noticeably less to work with.
+          description:
+            donorFormData.description.trim().length > 0
+              ? donorFormData.description
+              : analysis.suggested_description || "",
+        });
+      }
     } catch {
       toast.error("تعذّر التصنيف التلقائي. عبّئ الحقول يدوياً.", {
         id: toastId,
@@ -171,9 +236,26 @@ export default function DonorView({
     setIsAddDonationModalOpen(true);
   };
 
+  /**
+   * Same as `startTargetedDonation`, but for a donor already mid-form: the
+   * photo they uploaded and the condition the model read from it are kept, so
+   * accepting a suggestion costs them nothing they have already done.
+   */
+  const switchToTargetedNeed = (need: NeedRequest) => {
+    setDonorFormData({
+      ...donorFormData,
+      title: `تلبية طلب: ${need.title}`,
+      category: need.category,
+      sub_category: need.sub_category ?? "",
+      target_need_id: need.id,
+    });
+    setNeedSuggestions([]);
+  };
+
   const closeModal = () => {
     setIsAddDonationModalOpen(false);
     setDonorFormData({ ...donorFormData, target_need_id: null });
+    setNeedSuggestions([]);
   };
 
   const setField = <K extends keyof DonorItemForm>(
@@ -281,6 +363,16 @@ export default function DonorView({
               <option value="مقبولة">مقبولة</option>
             </Select>
 
+            {/* Shown here too, so a description written by the model is never
+                saved without the donor having had the chance to read it. */}
+            <Textarea
+              label="الوصف"
+              rows={3}
+              value={donorFormData.description}
+              onChange={(e) => setField("description", e.target.value)}
+              placeholder="المقاس، اللون، أي ملاحظة مفيدة…"
+            />
+
             {locationField}
 
             <Button
@@ -319,6 +411,66 @@ export default function DonorView({
               label="صورة القطعة"
               hint="صورة واضحة بإضاءة جيدة تكفي"
             />
+
+            {/* The moment of highest intent: the donor is holding the item and
+                a real person is already waiting for one like it. */}
+            {needSuggestions.length > 0 && (
+              <div className="rounded-xl bg-brand-50 p-4 ring-1 ring-brand-200">
+                <p className="flex items-center gap-1.5 text-xs font-bold text-brand-800">
+                  <Sparkles size={13} />
+                  {needSuggestions.length === 1
+                    ? "هناك طلب مفتوح تناسبه قطعتك"
+                    : `هناك ${needSuggestions.length} طلبات مفتوحة تناسبها قطعتك`}
+                </p>
+                <p className="mt-1 text-micro text-brand-900/70">
+                  اختر طلباً لتذهب قطعتك إليه مباشرة بدل انتظار من يطلبها.
+                </p>
+
+                <ul className="mt-3 flex flex-col gap-2">
+                  {needSuggestions.map(({ need, score }) => {
+                    // Recomputed here rather than read from the server result:
+                    // suggestions are fetched the moment the photo is read,
+                    // which is before the donor has picked a pickup point, so
+                    // the distance the server saw was always unknown. Doing it
+                    // from live form state also keeps it correct as they move
+                    // the map pin.
+                    const distanceKm = distanceBetween(
+                      donorFormData.location,
+                      need.delivery_location
+                    );
+
+                    return (
+                    <li
+                      key={need.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-3 ring-1 ring-brand-100"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-bold text-ink-900">
+                          {need.title}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-micro text-ink-700/70">
+                          <UrgencyBadge urgency={need.urgency} />
+                          <span className="tabular-nums">تطابق {score}%</span>
+                          {distanceKm !== null && (
+                            <span>· {formatDistanceAr(distanceKm)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="dark"
+                        size="sm"
+                        onClick={() => switchToTargetedNeed(need)}
+                      >
+                        <Target size={13} />
+                        وجّه له
+                      </Button>
+                    </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
 
             <Input
               label="عنوان القطعة"

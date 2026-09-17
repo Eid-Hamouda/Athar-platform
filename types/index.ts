@@ -46,6 +46,29 @@ export interface DeliverableDonation extends DonationItem {
   beneficiary_id?: string | null;
 }
 
+/**
+ * An alert raised when a newly published donation matched an open need.
+ * `donation` and `need` are joined in by the query rather than stored, so the
+ * card always reflects the item's current title and status — a donation that
+ * was reserved by someone else in the meantime still reads correctly.
+ */
+export interface MatchNotification {
+  id: string;
+  need_id: string;
+  donation_id: string;
+  score: number;
+  read_at: string | null;
+  created_at: string;
+  donation?: {
+    title: string;
+    image_url?: string | null;
+    condition?: string | null;
+    location?: string | null;
+    status: string;
+  } | null;
+  need?: { title: string } | null;
+}
+
 /* ---------------- Dashboard form shapes ---------------- */
 
 export interface NewUserForm {

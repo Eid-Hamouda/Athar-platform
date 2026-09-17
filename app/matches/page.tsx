@@ -7,12 +7,21 @@ import {
   MapPin,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Package,
   ArrowLeft,
+  Navigation,
+  BellRing,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { cn, stripCoordinatesPrefix } from "@/lib/utils";
+import { formatDistanceAr } from "@/lib/geo";
+import {
+  findMatchesForNeedsAction,
+  type DonationMatch,
+  type NeedMatchGroup,
+} from "@/app/actions/matchingActions";
 import { Container, Section } from "@/components/ui/Section";
 import { Card, IconTile } from "@/components/ui/Card";
 import { Badge, UrgencyBadge } from "@/components/ui/Badge";
@@ -20,23 +29,11 @@ import { buttonClass, ButtonLink } from "@/components/ui/Button";
 import { LoadingState, EmptyState, Alert } from "@/components/ui/Feedback";
 import { Photo } from "@/components/ui/Photo";
 import { Reveal } from "@/components/ui/Reveal";
-import type { NeedRequest } from "@/types";
-
-interface Match {
-  id: string;
-  title: string;
-  condition?: string;
-  location: string;
-  imageUrl?: string;
-  score: number;
-  reasons: string[];
-}
 
 export default function SmartMatchingPage() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [need, setNeed] = React.useState<NeedRequest | null>(null);
-  const [matches, setMatches] = React.useState<Match[]>([]);
+  const [groups, setGroups] = React.useState<NeedMatchGroup[]>([]);
 
   React.useEffect(() => {
     let active = true;
@@ -44,93 +41,24 @@ export default function SmartMatchingPage() {
     const load = async () => {
       try {
         const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
 
-        if (userError || !user) {
+        if (!session) {
           throw new Error("سجّل الدخول أولاً لعرض المطابقات الذكية.");
         }
 
-        // Needs are created with status "pending" and stay so until covered.
-        const { data: needData, error: needError } = await supabase
-          .from("needs")
-          .select("*")
-          .eq("beneficiary_id", user.id)
-          .eq("status", "pending")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (needError) throw needError;
+        // Ranking happens server-side: the model key stays off the client, and
+        // the catalogue is scored where it already lives instead of being
+        // shipped to the browser first.
+        const result = await findMatchesForNeedsAction(session.access_token);
         if (!active) return;
 
-        if (!needData) {
-          setIsLoading(false);
-          return;
-        }
-
-        setNeed(needData);
-
-        const { data: donationsData, error: donationsError } = await supabase
-          .from("donations")
-          .select("*")
-          .eq("status", "available");
-
-        if (donationsError) throw donationsError;
-        if (!active) return;
-
-        const scored = (donationsData ?? [])
-          .filter((donation) => {
-            const category = donation.category ?? "";
-            const sub = donation.sub_category ?? "";
-            const wanted = needData.category ?? "";
-            return (
-              category.includes(wanted) ||
-              wanted.includes(category) ||
-              sub.includes(wanted)
-            );
-          })
-          .map((donation) => {
-            const reasons: string[] = ["تطابق الفئة"];
-            let score = 70;
-
-            if (donation.condition === "ممتازة") {
-              score += 25;
-              reasons.push("حالة ممتازة");
-            } else if (donation.condition === "جيدة جداً") {
-              score += 15;
-              reasons.push("حالة جيدة جداً");
-            }
-
-            if (
-              needData.sub_category &&
-              donation.sub_category &&
-              donation.sub_category.includes(needData.sub_category)
-            ) {
-              score += 5;
-              reasons.push("تطابق التصنيف الفرعي");
-            }
-
-            return {
-              id: donation.id,
-              title: donation.title,
-              condition: donation.condition ?? undefined,
-              location:
-                stripCoordinatesPrefix(donation.location) || "الموقع غير محدد",
-              imageUrl: donation.image_url ?? undefined,
-              score: Math.min(score, 100),
-              reasons,
-            };
-          })
-          .sort((a, b) => b.score - a.score);
-
-        setMatches(scored);
+        if (result.error) throw new Error(result.error);
+        setGroups(result.groups);
       } catch (err) {
         if (!active) return;
-        setError(
-          err instanceof Error ? err.message : "تعذّر جلب المطابقات."
-        );
+        setError(err instanceof Error ? err.message : "تعذّر جلب المطابقات.");
       } finally {
         if (active) setIsLoading(false);
       }
@@ -142,13 +70,21 @@ export default function SmartMatchingPage() {
     };
   }, []);
 
+  const totalMatches = groups.reduce(
+    (sum, group) => sum + group.matches.length,
+    0
+  );
+  const degraded = groups.some(
+    (group) => group.matches.length > 0 && !group.aiReranked
+  );
+
   /* ---------------- States ---------------- */
 
   if (isLoading) {
     return (
       <Section>
         <Container width="wide">
-          <LoadingState label="نحلّل طلبك ونبحث عن أفضل المطابقات…" />
+          <LoadingState label="نحلّل طلباتك ونبحث عن أفضل المطابقات…" />
         </Container>
       </Section>
     );
@@ -185,22 +121,31 @@ export default function SmartMatchingPage() {
 
           <div className="max-w-2xl animate-rise">
             <h1 className="font-display text-display font-extrabold text-balance text-sand-50">
-              اقتراحات مبنية على طلبك النشط
+              اقتراحات مبنية على طلباتك المفتوحة
             </h1>
             <p className="mt-5 text-lead text-pretty text-sand-200/80">
-              نرتّب المعروضات المتاحة بحسب مطابقتها لفئة طلبك وحالة القطعة، فتصل
-              إلى الأنسب دون أن تتصفّح الكاتالوج كاملاً.
+              نقرأ تفاصيل كل طلب ووصف كل قطعة معروضة، ونرتّبها بحسب ما يلبّي
+              احتياجك فعلاً وقربه من موقع التسليم — لا بحسب تطابق الأسماء.
             </p>
+
+            {groups.length > 0 && (
+              <p className="mt-6 text-small font-semibold text-sand-200/70">
+                {groups.length === 1
+                  ? "طلب واحد مفتوح"
+                  : `${groups.length} طلبات مفتوحة`}
+                {totalMatches > 0 && ` · ${totalMatches} قطعة مقترحة`}
+              </p>
+            )}
           </div>
         </div>
       </Container>
 
       <Section>
         <Container width="wide">
-          {!need ? (
+          {groups.length === 0 ? (
             <EmptyState
               icon={Sparkles}
-              title="لا يوجد طلب نشط"
+              title="لا توجد طلبات مفتوحة"
               body="أضف طلب احتياج من لوحة التحكم، وسنبحث لك عن أقرب المعروضات المطابقة له تلقائياً."
               action={
                 <Link
@@ -213,136 +158,26 @@ export default function SmartMatchingPage() {
             />
           ) : (
             <>
-              {/* ---------- Active need ---------- */}
-              <Card padding="lg" className="mb-10">
-                <div className="flex flex-wrap items-start justify-between gap-6">
-                  <div className="flex items-start gap-4">
-                    <IconTile tone="gold" size="lg">
-                      <Package size={23} strokeWidth={1.75} />
-                    </IconTile>
-                    <div>
-                      <p className="text-small font-semibold text-ink-700/70">
-                        طلبك النشط الحالي
-                      </p>
-                      <h2 className="mt-1 font-display text-h2 font-extrabold text-ink-900">
-                        {need.title}
-                      </h2>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant="neutral">{need.category}</Badge>
-                        {need.sub_category && (
-                          <Badge variant="neutral">{need.sub_category}</Badge>
-                        )}
-                        <UrgencyBadge urgency={need.urgency} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {matches.length > 0 && (
-                    <div className="rounded-2xl bg-brand-50 px-5 py-4 ring-1 ring-brand-100">
-                      <p className="font-display text-h2 font-extrabold tabular-nums text-brand-700">
-                        {matches.length}
-                      </p>
-                      <p className="mt-0.5 text-small font-semibold text-brand-800">
-                        قطعة قد تناسب طلبك
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </Card>
-
-              {/* ---------- Matches ---------- */}
-              {matches.length === 0 ? (
-                <EmptyState
-                  icon={Sparkles}
-                  title="لا مطابقات دقيقة بعد"
-                  body="لم نجد قطعة تطابق فئة طلبك حتى الآن. سنبقي الطلب مفتوحاً ونشعرك فور توفّر قطعة مناسبة."
-                  action={
-                    <Link
-                      href="/catalog"
-                      className={buttonClass({ variant: "outline" })}
-                    >
-                      تصفّح الكاتالوج كاملاً
-                    </Link>
-                  }
-                />
-              ) : (
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                  {matches.map((match, i) => (
-                    <Reveal key={match.id} delay={Math.min(i, 8) * 70}>
-                      <Card padding="none" className="flex h-full flex-col overflow-hidden">
-                        <div className="relative">
-                          <Photo
-                            src={match.imageUrl || "/placeholder-item.svg"}
-                            alt={match.title}
-                            ratio="4/3"
-                            shape="soft"
-                            sizes="(max-width: 640px) 100vw, 33vw"
-                            className="rounded-none"
-                          />
-                          <div className="absolute top-3 end-3">
-                            <ScoreRing score={match.score} />
-                          </div>
-                        </div>
-
-                        <div className="flex flex-1 flex-col p-5">
-                          <h3 className="font-display text-h4 font-bold text-ink-900">
-                            {match.title}
-                          </h3>
-
-                          <div className="mt-3 flex flex-col gap-2 text-small text-ink-700/80">
-                            {match.condition && (
-                              <p className="flex items-center gap-2">
-                                <CheckCircle2
-                                  size={14}
-                                  className="shrink-0 text-brand-500"
-                                />
-                                الحالة: {match.condition}
-                              </p>
-                            )}
-                            <p className="flex items-center gap-2">
-                              <MapPin
-                                size={14}
-                                className="shrink-0 text-sand-500"
-                              />
-                              <span className="truncate">{match.location}</span>
-                            </p>
-                          </div>
-
-                          <div className="mt-5">
-                            <p className="text-micro font-bold text-ink-700/60">
-                              لماذا نقترحها؟
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {match.reasons.map((reason) => (
-                                <span
-                                  key={reason}
-                                  className="rounded-full bg-sand-100 px-2.5 py-1 text-micro font-semibold text-ink-700 ring-1 ring-sand-200"
-                                >
-                                  {reason}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-
-                          <Link
-                            href="/dashboard"
-                            className={cn(
-                              buttonClass({ variant: "primary", full: true }),
-                              "mt-6"
-                            )}
-                          >
-                            اطلب هذه القطعة
-                            <ArrowLeft
-                              size={16}
-                              className="transition-transform duration-300 group-hover/btn:-translate-x-1"
-                            />
-                          </Link>
-                        </div>
-                      </Card>
-                    </Reveal>
-                  ))}
-                </div>
+              {/* The ranking is honest about which engine produced it rather
+                  than presenting a fallback ordering as a full analysis. */}
+              {degraded && (
+                <Alert
+                  tone="warning"
+                  icon={AlertTriangle}
+                  title="ترتيب مبدئي"
+                  className="mb-10"
+                >
+                  خدمة التحليل المفصّل غير متاحة حالياً لبعض الطلبات، والترتيب
+                  المعروض لها مبني على التشابه والموقع فقط. حدّث الصفحة بعد قليل
+                  للحصول على تقييم كامل.
+                </Alert>
               )}
+
+              <div className="flex flex-col gap-14">
+                {groups.map((group) => (
+                  <NeedSection key={group.need.id} group={group} />
+                ))}
+              </div>
             </>
           )}
         </Container>
@@ -353,9 +188,197 @@ export default function SmartMatchingPage() {
 
 /* -------------------------------------------------------------------------- */
 
+/** One open request and everything ranked against it. */
+function NeedSection({ group }: { group: NeedMatchGroup }) {
+  const { need, matches } = group;
+
+  return (
+    <section>
+      <Card padding="lg" className="mb-6">
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <IconTile tone="gold" size="lg">
+              <Package size={23} strokeWidth={1.75} />
+            </IconTile>
+            <div>
+              <p className="text-small font-semibold text-ink-700/70">
+                طلب مفتوح
+              </p>
+              <h2 className="mt-1 font-display text-h2 font-extrabold text-ink-900">
+                {need.title}
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="neutral">{need.category}</Badge>
+                {need.sub_category && (
+                  <Badge variant="neutral">{need.sub_category}</Badge>
+                )}
+                <UrgencyBadge urgency={need.urgency} />
+              </div>
+            </div>
+          </div>
+
+          {matches.length > 0 && (
+            <div className="rounded-2xl bg-brand-50 px-5 py-4 ring-1 ring-brand-100">
+              <p className="font-display text-h2 font-extrabold tabular-nums text-brand-700">
+                {matches.length}
+              </p>
+              <p className="mt-0.5 text-small font-semibold text-brand-800">
+                قطعة قد تناسب طلبك
+              </p>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {matches.length === 0 ? (
+        // Deliberately not a dead end: nothing suitable exists *yet*, and the
+        // platform now says what happens next rather than leaving them to keep
+        // checking back.
+        <div className="rounded-2xl bg-sand-100 p-6 ring-1 ring-sand-200">
+          <p className="flex items-center gap-2 font-semibold text-ink-900">
+            <BellRing size={16} className="shrink-0 text-gold-600" />
+            لا مطابقات مناسبة بعد — وسنُعلمك فور وصولها
+          </p>
+          <p className="mt-2 text-small leading-relaxed text-ink-700/80">
+            راجعنا كل القطع المتاحة ولم نجد ما يلبّي هذا الطلب فعلاً، ونفضّل ألا
+            نقترح قطعة غير مناسبة. يبقى طلبك مفتوحاً، وكلما نُشر تبرّع جديد
+            يطابقه سيصلك تنبيه في لوحة التحكم.
+          </p>
+          <Link
+            href="/catalog"
+            className={cn(buttonClass({ variant: "outline" }), "mt-5")}
+          >
+            تصفّح الكاتالوج كاملاً
+          </Link>
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {matches.map((match, i) => (
+            <Reveal key={match.donation.id} delay={Math.min(i, 8) * 70}>
+              <MatchCard match={match} />
+            </Reveal>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MatchCard({ match }: { match: DonationMatch }) {
+  const { donation } = match;
+  const location =
+    stripCoordinatesPrefix(donation.location) || "الموقع غير محدد";
+
+  return (
+    <Card padding="none" className="flex h-full flex-col overflow-hidden">
+      <div className="relative">
+        <Photo
+          src={donation.image_url || "/placeholder-item.svg"}
+          alt={donation.title}
+          ratio="4/3"
+          shape="soft"
+          sizes="(max-width: 640px) 100vw, 33vw"
+          className="rounded-none"
+        />
+        <div className="absolute top-3 end-3">
+          <ScoreRing score={match.score} />
+        </div>
+        <div className="absolute bottom-3 start-3">
+          <Badge variant={match.verdict === "مطابق تماماً" ? "brand" : "ink"}>
+            {match.verdict}
+          </Badge>
+        </div>
+      </div>
+
+      <div className="flex flex-1 flex-col p-5">
+        <h3 className="font-display text-h4 font-bold text-ink-900">
+          {donation.title}
+        </h3>
+
+        <div className="mt-3 flex flex-col gap-2 text-small text-ink-700/80">
+          {donation.condition && (
+            <p className="flex items-center gap-2">
+              <CheckCircle2 size={14} className="shrink-0 text-brand-500" />
+              الحالة: {donation.condition}
+            </p>
+          )}
+          <p className="flex items-center gap-2">
+            <MapPin size={14} className="shrink-0 text-sand-500" />
+            <span className="truncate">{location}</span>
+          </p>
+          {/* Only shown when both sides actually carry coordinates. */}
+          {match.distanceKm !== null && (
+            <p className="flex items-center gap-2 font-semibold text-brand-700">
+              <Navigation size={14} className="shrink-0" />
+              يبعد {formatDistanceAr(match.distanceKm)} عن موقع التسليم
+            </p>
+          )}
+        </div>
+
+        {match.reasons.length > 0 && (
+          <div className="mt-5">
+            <p className="text-micro font-bold text-ink-700/60">
+              لماذا نقترحها؟
+            </p>
+            <ul className="mt-2 flex flex-col gap-1.5">
+              {match.reasons.map((reason) => (
+                <li
+                  key={reason}
+                  className="flex items-start gap-1.5 text-micro leading-relaxed text-ink-700"
+                >
+                  <CheckCircle2
+                    size={12}
+                    className="mt-0.5 shrink-0 text-brand-500"
+                  />
+                  <span>{reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Reservations are shown as prominently as the reasons — a suggestion
+            that hides its own caveats costs the beneficiary a wasted delivery. */}
+        {match.concerns.length > 0 && (
+          <div className="mt-4 rounded-xl bg-gold-50 p-3 ring-1 ring-gold-200">
+            <p className="text-micro font-bold text-gold-900">
+              انتبه قبل الطلب
+            </p>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {match.concerns.map((concern) => (
+                <li
+                  key={concern}
+                  className="flex items-start gap-1.5 text-micro leading-relaxed text-gold-900/90"
+                >
+                  <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                  <span>{concern}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <Link
+          href="/dashboard"
+          className={cn(
+            buttonClass({ variant: "primary", full: true }),
+            "mt-6"
+          )}
+        >
+          اطلب هذه القطعة
+          <ArrowLeft
+            size={16}
+            className="transition-transform duration-300 group-hover/btn:-translate-x-1"
+          />
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
 /** Match confidence as a conic-gradient ring. */
 function ScoreRing({ score }: { score: number }) {
-  const strong = score >= 90;
+  const strong = score >= 80;
   return (
     <div
       className="flex h-14 w-14 items-center justify-center rounded-full shadow-md"
