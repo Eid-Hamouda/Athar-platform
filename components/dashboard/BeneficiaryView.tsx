@@ -16,6 +16,8 @@ import {
   Sparkles,
   Search,
   Store,
+  BellRing,
+  Clock,
 } from "lucide-react";
 
 import type {
@@ -23,8 +25,9 @@ import type {
   DonationItem,
   NeedRequest,
   NewNeedForm,
+  MatchNotification,
 } from "@/types";
-import { stripCoordinatesPrefix } from "@/lib/utils";
+import { cn, stripCoordinatesPrefix } from "@/lib/utils";
 import MapPicker from "@/components/MapPicker";
 import { Modal } from "@/components/ui/Modal";
 import { IconTile } from "@/components/ui/Card";
@@ -54,6 +57,7 @@ interface BeneficiaryViewProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   profile: UserProfile | null;
+  notifications: MatchNotification[];
   donations: DonationItem[];
   needs: NeedRequest[];
   cart: DonationItem[];
@@ -178,6 +182,7 @@ export default function BeneficiaryView({
   activeTab,
   setActiveTab,
   profile,
+  notifications,
   donations,
   needs,
   cart,
@@ -703,6 +708,42 @@ export default function BeneficiaryView({
         </>
       )}
 
+      {/* ==================== Match alerts ==================== */}
+      {activeTab === "alerts" && (
+        <>
+          <PageHeader
+            title="تنبيهات المطابقة"
+            description="نُعلمك هنا كلما نُشر تبرّع جديد يطابق أحد طلباتك المفتوحة، دون أن تحتاج لمتابعة الكاتالوج بنفسك."
+          />
+
+          {notifications.length === 0 ? (
+            <EmptyState
+              icon={BellRing}
+              title="لا تنبيهات بعد"
+              body="طلباتك المفتوحة قيد المتابعة. عند وصول تبرّع يطابق أحدها سيظهر التنبيه هنا مباشرة."
+            />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {notifications.map((alert) => {
+                // Resolved against live state rather than the joined snapshot,
+                // so an item claimed by someone else since the alert was
+                // raised is offered accurately.
+                const item = donations.find((d) => d.id === alert.donation_id);
+                return (
+                  <AlertCard
+                    key={alert.id}
+                    alert={alert}
+                    item={item}
+                    inCart={cart.some((c) => c.id === alert.donation_id)}
+                    onAdd={() => item && handleAddToCart(item)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
       {/* ==================== My needs ==================== */}
       {activeTab === "my-needs" && (
         <>
@@ -789,5 +830,112 @@ export default function BeneficiaryView({
         </>
       )}
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Match alert                                                                */
+/* -------------------------------------------------------------------------- */
+
+const RELATIVE = new Intl.RelativeTimeFormat("ar", { numeric: "auto" });
+
+/** "قبل ٣ أيام" — coarse on purpose; the exact minute is never the point. */
+function relativeTimeAr(iso: string) {
+  const elapsedMs = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(elapsedMs)) return "";
+
+  const minutes = Math.round(elapsedMs / 60000);
+  if (minutes < 60) return RELATIVE.format(-minutes, "minute");
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return RELATIVE.format(-hours, "hour");
+
+  return RELATIVE.format(-Math.round(hours / 24), "day");
+}
+
+function AlertCard({
+  alert,
+  item,
+  inCart,
+  onAdd,
+}: {
+  alert: MatchNotification;
+  item?: DonationItem;
+  inCart: boolean;
+  onAdd: () => void;
+}) {
+  const title = item?.title ?? alert.donation?.title ?? "قطعة متبرَّع بها";
+  const status = item?.status ?? alert.donation?.status;
+  const available = status === "available";
+  const unread = !alert.read_at;
+
+  return (
+    <article
+      className={cn(
+        "flex flex-wrap items-center gap-4 rounded-xl bg-white p-4 ring-1 transition-shadow hover:shadow-sm",
+        unread ? "ring-brand-200" : "ring-sand-200"
+      )}
+    >
+      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-sand-100">
+        <Image
+          src={item?.image_url || alert.donation?.image_url || "/placeholder-item.svg"}
+          alt={title}
+          fill
+          sizes="64px"
+          className="object-cover"
+        />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {unread && (
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+          )}
+          <p className="truncate text-sm font-bold text-ink-900">{title}</p>
+          <Badge variant="brand">تطابق {alert.score}%</Badge>
+        </div>
+
+        <p className="mt-1 text-xs text-ink-700/75">
+          يطابق طلبك:{" "}
+          <span className="font-semibold text-ink-900">
+            {alert.need?.title ?? "طلب مفتوح"}
+          </span>
+        </p>
+
+        <p className="mt-1.5 flex items-center gap-1.5 text-micro text-ink-700/60">
+          <Clock size={11} className="shrink-0" />
+          {relativeTimeAr(alert.created_at)}
+          {!available && (
+            <>
+              <span aria-hidden>·</span>
+              {/* Honest about a race the beneficiary did not lose through
+                  any fault of their own. */}
+              <span className="font-semibold text-gold-800">
+                لم تعد متاحة — حجزها مستفيد آخر
+              </span>
+            </>
+          )}
+        </p>
+      </div>
+
+      <Button
+        variant={inCart ? "outline" : "dark"}
+        size="sm"
+        disabled={!available || inCart || !item}
+        onClick={onAdd}
+      >
+        {inCart ? (
+          <>
+            <CheckCircle2 size={14} />
+            في السلة
+          </>
+        ) : (
+          <>
+            <ShoppingBag size={14} />
+            أضف للسلة
+          </>
+        )}
+      </Button>
+    </article>
   );
 }

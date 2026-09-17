@@ -8,7 +8,7 @@ const eslintConfig = defineConfig([
   // Standalone CommonJS Node scripts, run directly with `node` rather than
   // through the bundler, so `require()` is correct here.
   {
-    files: ["seed.js"],
+    files: ["seed.js", "scripts/**/*.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },

@@ -20,13 +20,23 @@ import {
   ShoppingBag,
   History,
   ChevronLeft,
+  BellRing,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import {
+  embedDonationAction,
+  notifyMatchingNeedsAction,
+} from "@/app/actions/matchingActions";
 import { compressImage } from "@/lib/compressImage";
 import { cn } from "@/lib/utils";
-import type { UserProfile, DonationItem, NeedRequest } from "@/types";
+import type {
+  UserProfile,
+  DonationItem,
+  NeedRequest,
+  MatchNotification,
+} from "@/types";
 import AdminView from "@/components/dashboard/AdminView";
 import BeneficiaryView from "@/components/dashboard/BeneficiaryView";
 import VolunteerView from "@/components/dashboard/VolunteerView";
@@ -68,6 +78,7 @@ const TAB_LABELS: Record<string, string> = {
   "volunteer-tasks": "المهام النشطة",
   "volunteer-history": "سجل التسليمات",
   "open-needs": "طلبات مفتوحة",
+  alerts: "تنبيهات المطابقة",
 };
 
 const NAV: Record<string, NavGroup[]> = {
@@ -107,7 +118,10 @@ const NAV: Record<string, NavGroup[]> = {
     },
     {
       label: "طلباتي",
-      items: [{ id: "my-needs", label: "سجل الطلبات", icon: HeartHandshake }],
+      items: [
+        { id: "my-needs", label: "سجل الطلبات", icon: HeartHandshake },
+        { id: "alerts", label: "تنبيهات المطابقة", icon: BellRing },
+      ],
     },
   ],
   volunteer: [
@@ -122,6 +136,76 @@ const NAV: Record<string, NavGroup[]> = {
 };
 
 NAV.organization = NAV.beneficiary;
+
+/* -------------------------------------------------------------------------- */
+
+interface MutationResponse<T> {
+  data: T[] | null;
+  error: { message: string } | null;
+}
+
+/**
+ * Runs a mutation and insists that it actually changed something.
+ *
+ * Row-level security does not reject a forbidden write — it narrows the set of
+ * rows the statement can see, so the statement succeeds having matched none.
+ * PostgREST then answers HTTP 200 with an empty array and no error, which is
+ * indistinguishable from success unless the affected rows are read back. Every
+ * delete on this page used to take that at face value: it dropped the row from
+ * local state and showed a confirmation while the row sat untouched in the
+ * database, reappearing on the next refresh.
+ *
+ * So each mutation asks for its rows back with `.select()` and an empty result
+ * is treated as a failure.
+ */
+async function applyMutation<T>(
+  query: PromiseLike<MutationResponse<T>>,
+  refusedMessage: string
+): Promise<T[]> {
+  const { data, error } = await query;
+
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error(refusedMessage);
+
+  return data;
+}
+
+/** Shown when a write was refused rather than failing outright. */
+const REFUSED = "لم تسمح صلاحيات قاعدة البيانات بهذا الإجراء.";
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+/**
+ * Stores the semantic vector for a new donation so smart matching can skip the
+ * embedding call on every later search.
+ *
+ * Entirely best-effort. It stays quiet when the `embedding` column has not been
+ * added yet (see `supabase/migrations`), because the matching engine embeds any
+ * row that lacks one at query time — the column only makes that work durable.
+ */
+async function persistDonationEmbedding(
+  donationId: string,
+  item: {
+    title: string;
+    category: string;
+    sub_category: string;
+    condition: string;
+    description: string;
+  }
+) {
+  try {
+    const embedding = await embedDonationAction(item);
+    if (!embedding) return;
+
+    await supabase
+      .from("donations")
+      .update({ embedding })
+      .eq("id", donationId);
+  } catch {
+    // Matching still works without it; never surface this to the donor.
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 
@@ -147,6 +231,9 @@ export default function DashboardPage() {
   const [needs, setNeeds] = React.useState<NeedRequest[]>([]);
 
   // Beneficiary state
+  const [notifications, setNotifications] = React.useState<MatchNotification[]>(
+    []
+  );
   const [cart, setCart] = React.useState<DonationItem[]>([]);
   const [deliveryAddress, setDeliveryAddress] = React.useState("");
   const [deliveryLocation, setDeliveryLocation] = React.useState("");
@@ -233,6 +320,31 @@ export default function DashboardPage() {
 
       setDonations(donationsData || []);
       setNeeds(needsData || []);
+
+      if (
+        profileData?.role === "beneficiary" ||
+        profileData?.role === "organization"
+      ) {
+        // Joined rather than denormalised so a card always shows the item's
+        // current title and status. Best-effort: the table only exists once
+        // 0003_match_notifications.sql has been applied, and its absence must
+        // not take the whole dashboard down.
+        const { data: alertsData, error: alertsError } = await supabase
+          .from("match_notifications")
+          .select(
+            "id, need_id, donation_id, score, read_at, created_at, donation:donations(title, image_url, condition, location, status), need:needs(title)"
+          )
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false })
+          .limit(30);
+
+        if (alertsError) {
+          console.error("Match notifications unavailable:", alertsError.message);
+        } else {
+          setNotifications((alertsData ?? []) as unknown as MatchNotification[]);
+        }
+      }
+
       setLoading(false);
     };
 
@@ -251,11 +363,16 @@ export default function DashboardPage() {
   ) => {
     const toastId = toast.loading("جاري تعيين المتطوّع…");
     try {
-      const { error } = await supabase
-        .from("donations")
-        .update({ volunteer_id: volunteerId || null })
-        .eq("id", donationId);
-      if (error) throw error;
+      // Checking `error` alone is not enough: a policy refusal is reported as a
+      // successful statement that matched no rows.
+      await applyMutation(
+        supabase
+          .from("donations")
+          .update({ volunteer_id: volunteerId || null })
+          .eq("id", donationId)
+          .select(),
+        REFUSED
+      );
 
       setDonations((prev) =>
         prev.map((d) =>
@@ -280,35 +397,76 @@ export default function DashboardPage() {
   };
 
   const handleUpdateRole = async (id: string, role: string) => {
-    await supabase.from("profiles").update({ role }).eq("id", id);
-    setAllUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u)));
-    toast.success("حُدّث الدور.");
+    try {
+      await applyMutation(
+        supabase.from("profiles").update({ role }).eq("id", id).select(),
+        REFUSED
+      );
+      setAllUsers((prev) => prev.map((u) => (u.id === id ? { ...u, role } : u)));
+      toast.success("حُدّث الدور.");
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر تحديث الدور."));
+    }
   };
 
   const handleApproveUser = async (id: string) => {
-    await supabase.from("profiles").update({ is_approved: true }).eq("id", id);
-    setAllUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, is_approved: true } : u))
-    );
-    toast.success("اعتُمد الحساب.");
+    try {
+      await applyMutation(
+        supabase
+          .from("profiles")
+          .update({ is_approved: true })
+          .eq("id", id)
+          .select(),
+        REFUSED
+      );
+      setAllUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, is_approved: true } : u))
+      );
+      toast.success("اعتُمد الحساب.");
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر اعتماد الحساب."));
+    }
   };
 
   const handleDeleteUser = async (id: string) => {
-    await supabase.from("profiles").delete().eq("id", id);
-    setAllUsers((prev) => prev.filter((u) => u.id !== id));
-    toast.success("حُذف المستخدم.");
+    try {
+      await applyMutation(
+        supabase.from("profiles").delete().eq("id", id).select(),
+        REFUSED
+      );
+      setAllUsers((prev) => prev.filter((u) => u.id !== id));
+      // Honest wording: the profile goes, the auth account does not. Removing
+      // that needs a service-role key, same as creating one.
+      toast.success("أُلغي وصول المستخدم إلى المنصة.");
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر حذف المستخدم."));
+    }
   };
 
   const handleDeleteItem = async (id: string) => {
-    await supabase.from("donations").delete().eq("id", id);
-    setDonations((prev) => prev.filter((d) => d.id !== id));
-    toast.success("حُذف العنصر.");
+    try {
+      await applyMutation(
+        supabase.from("donations").delete().eq("id", id).select(),
+        "تعذّر حذف القطعة. القطع قيد التوصيل لا يمكن حذفها."
+      );
+      setDonations((prev) => prev.filter((d) => d.id !== id));
+      toast.success("حُذف العنصر.");
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر حذف العنصر."));
+    }
   };
 
   const handleDeleteNeed = async (id: string) => {
-    await supabase.from("needs").delete().eq("id", id);
-    setNeeds((prev) => prev.filter((n) => n.id !== id));
-    toast.success("حُذف الطلب.");
+    try {
+      await applyMutation(
+        supabase.from("needs").delete().eq("id", id).select(),
+        "تعذّر حذف الطلب. الطلبات التي بدأ توصيلها لا يمكن حذفها."
+      );
+      setNeeds((prev) => prev.filter((n) => n.id !== id));
+      toast.success("حُذف الطلب.");
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر حذف الطلب."));
+    }
   };
 
   const handleAdminCreateItem = async (e: React.FormEvent) => {
@@ -435,18 +593,42 @@ export default function DashboardPage() {
         beneficiary_id: profile?.id,
       };
 
-      await Promise.all(
-        cart.map((item) =>
-          supabase.from("donations").update(payload).eq("id", item.id)
-        )
+      // Reserving touches rows owned by donors, so it depends on a policy this
+      // page does not control. Each result is checked individually: a refusal
+      // comes back as zero rows rather than an error, and a cart that reports
+      // success while reserving nothing is the worst possible outcome here.
+      const results = await Promise.all(
+        cart.map(async (item) => {
+          const { data, error } = await supabase
+            .from("donations")
+            .update(payload)
+            .eq("id", item.id)
+            .select();
+
+          return { item, reserved: !error && (data?.length ?? 0) > 0 };
+        })
       );
 
-      setDonations((prev) =>
-        prev.map((d) =>
-          cart.some((c) => c.id === d.id) ? { ...d, ...payload } : d
-        )
-      );
-      setCart([]);
+      const reserved = results.filter((r) => r.reserved).map((r) => r.item);
+      const refused = results.filter((r) => !r.reserved).map((r) => r.item);
+
+      if (reserved.length > 0) {
+        const reservedIds = new Set(reserved.map((item) => item.id));
+        setDonations((prev) =>
+          prev.map((d) => (reservedIds.has(d.id) ? { ...d, ...payload } : d))
+        );
+        // Anything refused stays in the cart so it can be retried.
+        setCart((prev) => prev.filter((item) => !reservedIds.has(item.id)));
+      }
+
+      if (refused.length > 0) {
+        toast.error(
+          `تعذّر حجز ${refused.length} من القطع. قد تكون حُجزت للتو من مستفيد آخر.`,
+          { id: toastId }
+        );
+        return;
+      }
+
       setDeliveryAddress("");
       setDeliveryLocation("");
       setContactPhone("");
@@ -512,16 +694,60 @@ export default function DashboardPage() {
 
       setDonations((prev) => [inserted, ...prev]);
 
+      // Precompute the match vector while the donor owns this row — writing it
+      // later from a beneficiary's session would not pass row-level security.
+      // Deliberately not awaited and deliberately silent: matching falls back
+      // to embedding on demand, so a failure here costs speed, not results.
+      void persistDonationEmbedding(inserted.id, payload);
+
+      // Tell beneficiaries whose open request this item answers. Skipped for a
+      // targeted donation, which already has its recipient. Also unawaited:
+      // the donation is published either way, and the donor should not wait on
+      // a semantic search that is for someone else's benefit.
+      if (!targetNeed) {
+        void (async () => {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (!session) return;
+
+          const sent = await notifyMatchingNeedsAction(
+            session.access_token,
+            inserted.id,
+            payload
+          );
+          if (sent > 0) {
+            toast.success(
+              sent === 1
+                ? "أُرسل تنبيه لمستفيد ينتظر قطعة كهذه."
+                : `أُرسلت تنبيهات إلى ${sent} مستفيدين ينتظرون قطعة كهذه.`,
+              { duration: 6000 }
+            );
+          }
+        })();
+      }
+
       if (targetNeed) {
         const nextQuantity = Math.max(0, (targetNeed.quantity || 1) - 1);
         const nextStatus =
           nextQuantity === 0 ? "pending_delivery" : targetNeed.status;
 
-        const { error: updateError } = await supabase
+        // The donation is already saved, so a failure here cannot roll it back
+        // — but it must not pass silently either: the need would keep asking
+        // for a quantity that has in fact been covered.
+        const { data: updatedNeed, error: updateError } = await supabase
           .from("needs")
           .update({ quantity: nextQuantity, status: nextStatus })
-          .eq("id", targetNeed.id);
-        if (updateError) console.error("Need update failed:", updateError);
+          .eq("id", targetNeed.id)
+          .select();
+
+        if (updateError || (updatedNeed?.length ?? 0) === 0) {
+          console.error("Need update failed:", updateError);
+          toast.error(
+            "سُجّل تبرعك، لكن تعذّر تحديث الكمية المتبقية في الطلب. أبلغ المشرف.",
+            { duration: 6000 }
+          );
+        }
 
         setNeeds((prev) =>
           prev.map((n) =>
@@ -568,10 +794,16 @@ export default function DashboardPage() {
     try {
       const donation = donations.find((d) => d.id === donationId);
 
-      await supabase
-        .from("donations")
-        .update({ status: "completed" })
-        .eq("id", donationId);
+      // Throws if the update was refused, so a delivery is never reported as
+      // confirmed while the donation is still sitting in "reserved".
+      await applyMutation(
+        supabase
+          .from("donations")
+          .update({ status: "completed" })
+          .eq("id", donationId)
+          .select(),
+        "تعذّر تأكيد التسليم. تحقّق من أنك المتطوّع المعيَّن لهذه القطعة."
+      );
 
       let nextNeeds = [...needs];
       let closedNeed = false;
@@ -579,14 +811,21 @@ export default function DashboardPage() {
       if (donation?.target_need_id) {
         const relatedNeed = needs.find((n) => n.id === donation.target_need_id);
         if (relatedNeed && relatedNeed.quantity === 0) {
-          await supabase
+          // Secondary bookkeeping: the delivery itself already succeeded, so a
+          // refusal here must not undo it — it only means the need stays open
+          // and the volunteer is not told otherwise.
+          const { data: closed } = await supabase
             .from("needs")
             .update({ status: "completed" })
-            .eq("id", relatedNeed.id);
-          nextNeeds = nextNeeds.map((n) =>
-            n.id === relatedNeed.id ? { ...n, status: "completed" } : n
-          );
-          closedNeed = true;
+            .eq("id", relatedNeed.id)
+            .select();
+
+          if ((closed?.length ?? 0) > 0) {
+            nextNeeds = nextNeeds.map((n) =>
+              n.id === relatedNeed.id ? { ...n, status: "completed" } : n
+            );
+            closedNeed = true;
+          }
         }
       }
 
@@ -603,8 +842,8 @@ export default function DashboardPage() {
           : "أُكّد التسليم بنجاح.",
         { id: toastId }
       );
-    } catch {
-      toast.error("تعذّر تأكيد التسليم.", { id: toastId });
+    } catch (error) {
+      toast.error(errorMessage(error, "تعذّر تأكيد التسليم."), { id: toastId });
     }
   };
 
@@ -635,7 +874,36 @@ export default function DashboardPage() {
         ).length
       : 0;
 
+  const unreadAlerts = notifications.filter((n) => !n.read_at).length;
+
+  /**
+   * Clears the unread badge when the tab is opened. Optimistic on purpose:
+   * the badge is a convenience, and making the beneficiary wait on a round
+   * trip to stop seeing a counter they have just acted on is worse than the
+   * rare case of it reappearing after a refresh.
+   */
+  const markAlertsRead = async () => {
+    const unread = notifications.filter((n) => !n.read_at);
+    if (unread.length === 0) return;
+
+    const readAt = new Date().toISOString();
+    setNotifications((prev) =>
+      prev.map((n) => (n.read_at ? n : { ...n, read_at: readAt }))
+    );
+
+    const { error } = await supabase
+      .from("match_notifications")
+      .update({ read_at: readAt })
+      .in(
+        "id",
+        unread.map((n) => n.id)
+      );
+
+    if (error) console.error("Could not mark alerts read:", error.message);
+  };
+
   const navigate = (id: string) => {
+    if (id === "alerts") void markAlertsRead();
     setActiveTab(id);
     setIsSidebarOpen(false);
   };
@@ -691,7 +959,9 @@ export default function DashboardPage() {
                       ? cart.length
                       : item.id === "manage-users"
                         ? pendingApprovals
-                        : 0;
+                        : item.id === "alerts"
+                          ? unreadAlerts
+                          : 0;
 
                   return (
                     <li key={item.id}>
@@ -847,6 +1117,7 @@ export default function DashboardPage() {
               activeTab={activeTab}
               setActiveTab={setActiveTab}
               profile={profile}
+              notifications={notifications}
               donations={donations}
               needs={needs}
               cart={cart}
