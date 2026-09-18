@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
-import { compressImage } from "@/lib/compressImage";
+import { ANALYSIS_MAX_EDGE, compressImage } from "@/lib/compressImage";
 import { analyzeItemAction } from "@/app/actions/aiActions";
 import MapPicker from "@/components/MapPicker";
 import { Container, Section } from "@/components/ui/Section";
@@ -95,8 +95,10 @@ export default function DonatePage() {
     const toastId = toast.loading("الذكاء الاصطناعي يقرأ الصورة…");
 
     try {
+      // Shrunk before it is sent, not just before it is stored: the model is
+      // on a per-attempt clock and an unscaled photo spends it on the upload.
       const payload = new FormData();
-      payload.append("image", next);
+      payload.append("image", await compressImage(next, { maxEdge: ANALYSIS_MAX_EDGE }));
       const analysis = await analyzeItemAction(payload);
 
       if (!analysis) throw new Error("no-analysis");
