@@ -38,6 +38,7 @@ import { Badge, StatusBadge, UrgencyBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Textarea, Field } from "@/components/ui/Input";
 import { FileDrop } from "@/components/ui/FileDrop";
+import { ANALYSIS_MAX_EDGE, compressImage } from "@/lib/compressImage";
 import { PageHeader, Surface, Toolbar } from "@/components/dashboard/ui/Layout";
 import {
   DataTable,
@@ -162,8 +163,10 @@ export default function DonorView({
     const toastId = toast.loading("الذكاء الاصطناعي يقرأ الصورة…");
 
     try {
+      // Shrunk before it is sent, not just before it is stored: the model is
+      // on a per-attempt clock and an unscaled photo spends it on the upload.
       const payload = new FormData();
-      payload.append("image", file);
+      payload.append("image", await compressImage(file, { maxEdge: ANALYSIS_MAX_EDGE }));
       const analysis = await analyzeItemAction(payload);
       if (!analysis) throw new Error("no-analysis");
 

@@ -5,6 +5,10 @@ import { Type } from "@google/genai";
 import type { DonationItem, NeedRequest } from "@/types";
 import { distanceBetween } from "@/lib/geo";
 import { ai, generateWithFallback } from "@/services/geminiClient";
+import {
+  isUsableArabic,
+  rerankWithFallbackProvider,
+} from "@/services/fallbackProvider";
 
 /**
  * Smart matching engine.
@@ -449,7 +453,25 @@ async function rerankCandidates(
     },
   });
 
-  if (!response?.text) return null;
+  // Gemini is metered per model per day and matching is what drains it, so a
+  // second provider is tried before giving up on reranking altogether. Without
+  // this the page drops to embedding-only ordering for the rest of the day.
+  if (!response?.text) {
+    const fallback = await rerankWithFallbackProvider(prompt, candidates.length);
+    if (!fallback) return null;
+
+    const verdicts = new Map<number, RerankVerdict>();
+    for (const entry of fallback) {
+      verdicts.set(entry.index, {
+        index: entry.index,
+        score: entry.score,
+        verdict: entry.verdict as MatchVerdict,
+        reasons: entry.reasons,
+        concerns: entry.concerns,
+      });
+    }
+    return verdicts.size > 0 ? verdicts : null;
+  }
 
   try {
     const parsed = JSON.parse(response.text) as RerankVerdict[];
@@ -464,10 +486,15 @@ async function rerankCandidates(
       verdicts.set(entry.index, {
         ...entry,
         score: Math.max(0, Math.min(100, Number(entry.score) || 0)),
-        reasons: Array.isArray(entry.reasons) ? entry.reasons.slice(0, 3) : [],
-        concerns: Array.isArray(entry.concerns)
-          ? entry.concerns.slice(0, 2)
-          : [],
+        // Same language filter as the fallback path: a garbled line is dropped
+        // while the score it came with is kept, so one bad sentence never
+        // costs an otherwise good match its rank.
+        reasons: (Array.isArray(entry.reasons) ? entry.reasons : [])
+          .filter(isUsableArabic)
+          .slice(0, 3),
+        concerns: (Array.isArray(entry.concerns) ? entry.concerns : [])
+          .filter(isUsableArabic)
+          .slice(0, 2),
       });
     }
 
@@ -570,6 +597,13 @@ export async function matchDonationsToNeed(
     vectors[donationIndex] = computed[position] ?? null;
   });
 
+  // Whether stage 1 actually ran. When the embedding API is unreachable the
+  // ordering below is lexical word overlap, which lives on a completely
+  // different scale from cosine — so everything calibrated against cosine has
+  // to know not to trust it.
+  const embeddingsAvailable =
+    needVector !== null && vectors.some((vector) => vector !== null);
+
   const similarities = donations.map((_, index) => {
     const vector = vectors[index];
     if (needVector && vector) return cosineSimilarity(needVector, vector);
@@ -589,9 +623,17 @@ export async function matchDonationsToNeed(
   // plausibly related, the call is skipped rather than spent confirming it:
   // a need with no plausible match is exactly the case that ends in a "we
   // will tell you when something arrives" empty state anyway.
-  const worthReranking = shortlist.some(
-    (entry) => similarityToRelevance(entry.similarity) >= RERANK_FLOOR
-  );
+  //
+  // That shortcut is only safe while the scores come from embeddings. With the
+  // embedding API down these are lexical overlap scores, which are far lower
+  // for the same pair, and reading them on the cosine scale would skip the
+  // rerank on every need — silently emptying the page during an outage. Losing
+  // stage 1 is precisely when stage 2 is most worth spending.
+  const worthReranking =
+    !embeddingsAvailable ||
+    shortlist.some(
+      (entry) => similarityToRelevance(entry.similarity) >= RERANK_FLOOR
+    );
 
   const verdicts = worthReranking
     ? await rerankCandidates(
@@ -610,9 +652,15 @@ export async function matchDonationsToNeed(
       need.delivery_location
     );
     const logistics = logisticsScore(need, donation, distanceKm);
+    // Without a verdict the only relevance signal is stage 1, and its scale is
+    // only meaningful when it came from embeddings. Lexical overlap is scored
+    // as zero rather than converted, so a match is never recommended on the
+    // strength of a shared word plus a short drive.
     const relevance = verdict
       ? verdict.score
-      : similarityToRelevance(similarity);
+      : embeddingsAvailable
+        ? similarityToRelevance(similarity)
+        : 0;
 
     const score = Math.round(0.7 * relevance + 0.3 * logistics);
 

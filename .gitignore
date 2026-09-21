@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# documents
+# Project reports live alongside the code but are not part of it, and the
+# .docx files are large binaries that git cannot diff.
+/Report/
+
+# Word writes a ~$ lock file next to any open document; it is transient,
+# machine-local, and occasionally holds the author's name.
+~$*
